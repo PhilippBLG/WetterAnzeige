@@ -6,7 +6,7 @@ from geopy.distance import geodesic
 app = Flask(__name__, static_folder='static')
 
 
-def find_stations_within_radius(csv_url, lat, lon, max_dist_km, max_stations):
+def find_stations_within_radius(csv_url, lat, lon, max_dist_km):
     """
     Lädt die CSV-Datei von csv_url und gibt eine Liste von Stationen zurück,
     die innerhalb von max_dist_km liegen, bis max_stations erreicht ist.
@@ -34,12 +34,12 @@ def find_stations_within_radius(csv_url, lat, lon, max_dist_km, max_stations):
                     "station_id": station_id,
                     "latitude": station_lat,
                     "longitude": station_lon,
-                    "distance_km": dist_km
+                    "distance_km": dist_km,
+                    "processed": True
                 })
 
                 # Maximalanzahl an Stationen beachten
-                if len(stations) >= max_stations:
-                    break
+                pass  # Remove max_stations from helper
         except (ValueError, IndexError):
             continue
         except Exception as e:
@@ -56,39 +56,22 @@ def find_stations_within_radius(csv_url, lat, lon, max_dist_km, max_stations):
         station["longitude"] = float(station["longitude"])
         station["distance_km"] = float(station["distance_km"])
 
-    stations = sorted(stations, key=lambda k: k['distance_km'])
-    for station in stations:
-        station["station_id"] = str(station["station_id"])
-        station["latitude"] = float(station["latitude"])
-        station["longitude"] = float(station["longitude"])
-        station["distance_km"] = float(station["distance_km"])
+    return sorted(stations, key=lambda k: k['distance_km'])
     return stations
 
 @app.route('/api/find_stations', methods=['GET'])
 def find_stations():
-    """
-    API-Endpoint, um Wetterstationen basierend auf den übergebenen Parametern zu finden.
-    Erwartet:
-      - csv_url (Pfad zur CSV)
-      - lat (Breitengrad)
-      - lon (Längengrad)
-      - max_dist_km (Suchradius)
-      - max_stations (Maximale Anzahl an Ergebnissen)
-    """
-    # Standardwerte für `/api/find_stations`
     csv_url = "https://www1.ncdc.noaa.gov/pub/data/ghcn/daily/ghcnd-stations.csv"
-    lat = float(request.args.get("lat", 48.060711110885094))  # Default: Beispiel-Koordinaten
+    lat = float(request.args.get("lat", 48.060711110885094))
     lon = float(request.args.get("lon", 8.533784762385885))
     max_dist_km = float(request.args.get("max_dist_km", 50.0))
-    max_stations = int(request.args.get("max_stations", 5))
+    max_stations = int(request.args.get("max_stations", 0))
 
-    # Ergebnisse berechnen
     try:
-        stations = find_stations_within_radius(csv_url, lat, lon, max_dist_km, max_stations)
+        raw_stations = find_stations_within_radius(csv_url, lat, lon, max_dist_km)
+        stations = raw_stations[:max_stations]  # Apply max_stations filter here
         if not stations:
-            print("No stations found.")
             return jsonify([]), 200
-        print(f"Stations found: {stations}")
         return jsonify(stations), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -98,7 +81,7 @@ def find_stations():
     lat = float(request.args.get("lat", 48.060711110885094))  # Default: Beispiel-Koordinaten
     lon = float(request.args.get("lon", 8.533784762385885))
     max_dist_km = float(request.args.get("max_dist_km", 50.0))
-    max_stations = int(request.args.get("max_stations", 5))
+    max_stations = int(request.args.get("max_stations", 0))
 
     # Ergebnisse berechnen
     try:
@@ -116,7 +99,7 @@ def render_form():
     lat = request.args.get("lat", 48.060711110885094)  # Default-Werte
     lon = request.args.get("lon", 8.533784762385885)
     max_dist_km = request.args.get("max_dist_km", 50.0)
-    max_stations = request.args.get("max_stations", 5)
+    max_stations = request.args.get("max_stations", 0)
     html_output = f"""
     <html>
         <head>
@@ -180,6 +163,7 @@ def render_form():
                        }});
                     }});
                 }}
+                window.onload = async () => {{ await fetchStations(); }};
             </script>
         </head>
         <body>
