@@ -65,7 +65,7 @@ def find_stations():
     lat = float(request.args.get("lat", 48.060711110885094))
     lon = float(request.args.get("lon", 8.533784762385885))
     max_dist_km = float(request.args.get("max_dist_km", 50.0))
-    max_stations = int(request.args.get("max_stations", 0))
+    max_stations = int(request.args.get("max_stations", 5))
 
     try:
         raw_stations = find_stations_within_radius(csv_url, lat, lon, max_dist_km)
@@ -81,7 +81,7 @@ def find_stations():
     lat = float(request.args.get("lat", 48.060711110885094))  # Default: Beispiel-Koordinaten
     lon = float(request.args.get("lon", 8.533784762385885))
     max_dist_km = float(request.args.get("max_dist_km", 50.0))
-    max_stations = int(request.args.get("max_stations", 0))
+    max_stations = int(request.args.get("max_stations", 5))
 
     # Ergebnisse berechnen
     try:
@@ -99,7 +99,7 @@ def render_form():
     lat = request.args.get("lat", 48.060711110885094)  # Default-Werte
     lon = request.args.get("lon", 8.533784762385885)
     max_dist_km = request.args.get("max_dist_km", 50.0)
-    max_stations = request.args.get("max_stations", 0)
+    max_stations = request.args.get("max_stations", 5)
     html_output = f"""
     <html>
         <head>
@@ -107,61 +107,63 @@ def render_form():
             </script>
             <script>
                 async function fetchStations() {{
+                    const map = new google.maps.Map(document.getElementById("map"), {{
+                        zoom: 10,
+                        center: {{ lat: parseFloat(document.getElementById('lat').value), lng: parseFloat(document.getElementById('lon').value) }},
+                        mapId: "Map1",
+                    }});
                     const lat = document.getElementById('lat').value;
                     const lon = document.getElementById('lon').value;
                     const max_dist_km = document.getElementById('max_dist_km').value;
                     const max_stations = document.getElementById('max_stations').value;
-                    const response = await fetch(`/api/find_stations?lat=${{lat}}&lon=${{lon}}&max_dist_km=${{max_dist_km}}&max_stations=${{max_stations}}`);
-                    const data = await response.json();
-                    const map = new google.maps.Map(document.getElementById("map"), {{
-                        zoom: 10,
-                        center: {{ lat: parseFloat(lat), lng: parseFloat(lon) }},
-                        mapId: "Map1",
-                    }});
+                    const response = await fetch(`/api/find_stations?lat={lat}&lon={lon}&max_dist_km={max_dist_km}&max_stations={max_stations}`);
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder("utf-8");
+                    let stationsChunk = "";
                     const maik = document.createElement("img");
                     maik.src = "/static/Subject.png";
                     maik.width = 44;
                     const marker2 = new google.maps.marker.AdvancedMarkerElement({{
-                                map: map,
-                                position: {{ lat: parseFloat(lat), lng: parseFloat(lon) }},
-                                content: maik,
-                                title: `Home`,
-                                gmpClickable: true,
-                            }});
-                    // Add a click listener for each marker, and set up the info window.
+                        map: map,
+                        position: {{ lat: parseFloat(lat), lng: parseFloat(lon) }},
+                        content: maik,
+                        title: `Home`,
+                        gmpClickable: true,
+                    }});
                     marker2.addListener("click", ({{ domEvent, latLng }}) => {{
                         maik.style.transition = "width 0.5s ease-in-out";
                         maik.width = maik.width === 44 ? 400 : 44;
-                        const {{ target }} = domEvent;
                     }});
-                    data.forEach(station => {{
-                        const WetterStationImg = document.createElement("img");
-                        WetterStationImg.src = "https://cdn-icons-png.flaticon.com/512/1809/1809492.png";
-                        WetterStationImg.width = 44;
-                        WetterStationImg.height = 44;
-                        const marker = new google.maps.marker.AdvancedMarkerElement({{
-                            map: map,
-                            position: {{
-                                lat: station.latitude,
-                                lng: station.longitude
-                            }},
-                            gmpClickable: true,
-                            content: WetterStationImg,
-                            title: `Station ID: ${{station.station_id}}`
-                        }});
-                        const infoWindow = new google.maps.InfoWindow();
-                        marker.addListener("click", ({{ domEvent, latLng }}) => {{
-                           const {{ target }} = domEvent;
-                           infoWindow.close();
-                           infoWindow.setContent(`
-                              <div>
-                                <h3>${{marker.title}}</h3>
-                                <p>Additional information can go here!</p>
-                              </div>
-                            `);
-                           infoWindow.open(marker.map, marker);
-                       }});
-                    }});
+                    while (true) {{
+                        const {{ value, done }} = await reader.read();
+                        if (done) break;
+                        stationsChunk += decoder.decode(value, {{stream: true}});
+                        const stations = JSON.parse(stationsChunk);
+                        for (const station of stations) {{
+                            const WetterStationImg = document.createElement("img");
+                            WetterStationImg.src = "https://cdn-icons-png.flaticon.com/512/1809/1809492.png";
+                            WetterStationImg.width = 44;
+                            WetterStationImg.height = 44;
+                            const marker = new google.maps.marker.AdvancedMarkerElement({{
+                                map: map,
+                                position: {{ lat: station.latitude, lng: station.longitude }},
+                                gmpClickable: true,
+                                content: WetterStationImg,
+                                title: `Station ID: ${{station.station_id}}`
+                            }});
+                            const infoWindow = new google.maps.InfoWindow();
+                            marker.addListener("click", ({{ domEvent, latLng }}) => {{
+                                infoWindow.close();
+                                infoWindow.setContent(`
+                                    <div>
+                                        <h3>${{marker.title}}</h3>
+                                        <p>Additional information can go here!</p>
+                                    </div>
+                                `);
+                                infoWindow.open(marker.map, marker);
+                            }});
+                        }};
+                    }};
                 }}
                 window.onload = async () => {{ await fetchStations(); }};
             </script>
@@ -169,10 +171,10 @@ def render_form():
         <body>
             <h1>Station Finder</h1>
             <form onsubmit="event.preventDefault(); fetchStations();">
-                Latitude: <input id="lat" type="text" value="{lat}"><br>
-                Longitude: <input id="lon" type="text" value="{lon}"><br>
-                Max Distance (km): <input id="max_dist_km" type="text" value="{max_dist_km}"><br>
-                Max Stations: <input id="max_stations" type="text" value="{max_stations}"><br>
+                Latitude: <input id="lat" type="number" value="{lat}"><br>
+                Longitude: <input id="lon" type="number" value="{lon}"><br>
+                Max Distance (km): <input id="max_dist_km" type="number" value="{max_dist_km}"><br>
+                Max Stations: <input id="max_stations" type="number" value="{max_stations}"><br>
                 <input type="submit" value="Find Stations">
             </form>
             <div id="map" style="height: 75vh; width: 100%; margin-top:20px;"></div>
