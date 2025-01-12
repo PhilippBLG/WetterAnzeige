@@ -3,7 +3,7 @@ import csv
 import requests
 from geopy.distance import geodesic
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static')
 
 
 def find_stations_within_radius(csv_url, lat, lon, max_dist_km, max_stations):
@@ -42,14 +42,30 @@ def find_stations_within_radius(csv_url, lat, lon, max_dist_km, max_stations):
                     break
         except (ValueError, IndexError):
             continue
+        except Exception as e:
+            print(f"Error processing row {row}: {e}")
+
+            continue
+        except Exception as e:
+            print(f"Error processing row {row}: {e}")
+
     stations = sorted(stations, key=lambda k: k['distance_km'])
+    for station in stations:
+        station["station_id"] = str(station["station_id"])
+        station["latitude"] = float(station["latitude"])
+        station["longitude"] = float(station["longitude"])
+        station["distance_km"] = float(station["distance_km"])
+
+    stations = sorted(stations, key=lambda k: k['distance_km'])
+    for station in stations:
+        station["station_id"] = str(station["station_id"])
+        station["latitude"] = float(station["latitude"])
+        station["longitude"] = float(station["longitude"])
+        station["distance_km"] = float(station["distance_km"])
     return stations
 
 @app.route('/api/find_stations', methods=['GET'])
 def find_stations():
-    """
-    API-Endpoint, um Wetterstationen im JSON-Format zurückzugeben.
-    """
     """
     API-Endpoint, um Wetterstationen basierend auf den übergebenen Parametern zu finden.
     Erwartet:
@@ -59,7 +75,7 @@ def find_stations():
       - max_dist_km (Suchradius)
       - max_stations (Maximale Anzahl an Ergebnissen)
     """
-    # Standardwerte
+    # Standardwerte für `/api/find_stations`
     csv_url = "https://www1.ncdc.noaa.gov/pub/data/ghcn/daily/ghcnd-stations.csv"
     lat = float(request.args.get("lat", 48.060711110885094))  # Default: Beispiel-Koordinaten
     lon = float(request.args.get("lon", 8.533784762385885))
@@ -69,125 +85,108 @@ def find_stations():
     # Ergebnisse berechnen
     try:
         stations = find_stations_within_radius(csv_url, lat, lon, max_dist_km, max_stations)
-        # HTML-Ausgabe erstellen
-        html_output = f"""
-        <html>
-            <head>
-                <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAxOzRDNqtyLTKUK83-j7auXehzWmoCoaY&libraries=marker"></script>
-                <script>
-                    function initMap() {{
-                        const map = new google.maps.Map(document.getElementById("map"), {{
-                            zoom: 10,
-                            center: {{ lat: {lat}, lng: {lon} }},
-                            mapId: "Map",
-                        }});
-                        
-                        // A marker with a with a URL pointing to a PNG.
-                        const beachFlagImg = document.createElement("img");
-                        
-                        beachFlagImg.src =
-                          "https://developers.google.com/maps/documentation/javascript/examples/full/images/beachflag.png";
-                        
-                        
-                        
-                        
-                        const beachFlagMarkerView = new google.maps.marker.AdvancedMarkerElement({{
-                          map,
-                          position: {{ lat: {lat}, lng: {lon} }},
-                          content: beachFlagImg,
-                          title: "A marker using a custom PNG Image",
-                        }});
-                        
-                        const stations = {stations};
-
-                        stations.forEach(station => {{
-                            // A marker with a with a URL pointing to a PNG.
-                            const WetterStationImg = document.createElement("img");
-                            
-                            WetterStationImg.src =
-                              "https://cdn-icons-png.flaticon.com/512/1809/1809492.png";
-                            WetterStationImg.width = 44;
-                            WetterStationImg.height = 44;
-                            const marker = new google.maps.marker.AdvancedMarkerElement({{
-                                map: map,
-                                position: {{
-                                    lat: station.latitude,
-                                    lng: station.longitude
-                                }},
-                                content: WetterStationImg,
-                                title: `Station ID: $station.station_id`
-                            }});
-                        }});
-                    }}
-                </script>
-            </head>
-            <body onload="initMap()">
-                <h1>Stations Map</h1>
-                <div id="map" style="height: 600px; width: 100%;"></div>
-            </body>
-        </html>
-        """
-        return html_output, 200
+        if not stations:
+            print("No stations found.")
+            return jsonify([]), 200
+        print(f"Stations found: {stations}")
+        return jsonify(stations), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+    # Standardwerte für `/api/find_stations`
+    csv_url = "https://www1.ncdc.noaa.gov/pub/data/ghcn/daily/ghcnd-stations.csv"
+    lat = float(request.args.get("lat", 48.060711110885094))  # Default: Beispiel-Koordinaten
+    lon = float(request.args.get("lon", 8.533784762385885))
+    max_dist_km = float(request.args.get("max_dist_km", 50.0))
+    max_stations = int(request.args.get("max_stations", 5))
+
+    # Ergebnisse berechnen
+    try:
+        stations = find_stations_within_radius(csv_url, lat, lon, max_dist_km, max_stations)
+        return jsonify(stations), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/', methods=['GET'])
-def index():
+def render_form():
     """
-    Hauptseite mit Formular und dynamischen Kartenaktualisierungen.
+    HTML-Seite mit Formular und Google Maps anzeigen.
     """
-    return """
+    lat = request.args.get("lat", 48.060711110885094)  # Default-Werte
+    lon = request.args.get("lon", 8.533784762385885)
+    max_dist_km = request.args.get("max_dist_km", 50.0)
+    max_stations = request.args.get("max_stations", 5)
+    html_output = f"""
     <html>
         <head>
-            <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAxOzRDNqtyLTKUK83-j7auXehzWmoCoaY">
+            <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAxOzRDNqtyLTKUK83-j7auXehzWmoCoaY&libraries=marker">
             </script>
             <script>
-                async function fetchStations() {
+                async function fetchStations() {{
                     const lat = document.getElementById('lat').value;
                     const lon = document.getElementById('lon').value;
                     const max_dist_km = document.getElementById('max_dist_km').value;
                     const max_stations = document.getElementById('max_stations').value;
-                    const response = await fetch(`/api/find_stations?lat=${lat}&lon=${lon}&max_dist_km=${max_dist_km}&max_stations=${max_stations}`);
+                    const response = await fetch(`/api/find_stations?lat=${{lat}}&lon=${{lon}}&max_dist_km=${{max_dist_km}}&max_stations=${{max_stations}}`);
                     const data = await response.json();
-                    const map = new google.maps.Map(document.getElementById("map"), {
+                    const map = new google.maps.Map(document.getElementById("map"), {{
                         zoom: 10,
-                        center: { lat: parseFloat(lat), lng: parseFloat(lon) },
-                    });
-                    data.forEach(station => {
-                        // A marker with a with a URL pointing to a PNG.
-                            const WetterStationImg = document.createElement("img");
-                            
-                            WetterStationImg.src =
-                              "https://cdn-icons-png.flaticon.com/512/1809/1809492.png";
-                            WetterStationImg.width = 44;
-                            WetterStationImg.height = 44;
-                            const marker = new google.maps.marker.AdvancedMarkerElement({
+                        center: {{ lat: parseFloat(lat), lng: parseFloat(lon) }},
+                        mapId: "Map1",
+                    }});
+                    const maik = document.createElement("img");
+                    maik.src = "/static/Subject.png";
+                    maik.width = 44;
+                    const marker2 = new google.maps.marker.AdvancedMarkerElement({{
                                 map: map,
-                                position: {
-                                    lat: station.latitude,
-                                    lng: station.longitude
-                                },
-                                content: WetterStationImg,
-                                title: `Station ID: $station.station_id`
-                            });
-                    });
-                }
+                                position: {{ lat: parseFloat(lat), lng: parseFloat(lon) }},
+                                content: maik,
+                                title: `Home`,
+                                gmpClickable: true,
+                            }});
+                    data.forEach(station => {{
+                        const WetterStationImg = document.createElement("img");
+                        WetterStationImg.src = "https://cdn-icons-png.flaticon.com/512/1809/1809492.png";
+                        WetterStationImg.width = 44;
+                        WetterStationImg.height = 44;
+                        const marker = new google.maps.marker.AdvancedMarkerElement({{
+                            map: map,
+                            position: {{
+                                lat: station.latitude,
+                                lng: station.longitude
+                            }},
+                            content: WetterStationImg,
+                            title: `Station ID: ${{station.station_id}}`,
+                        }});
+                    }});
+                    // Add a click listener for each marker, and set up the info window.
+                    marker2.addListener("click", ({{ domEvent, latLng }}) => {{
+                      maik.style.transition = "width 0.5s ease-in-out";
+                      maik.width = 200;
+                      const {{ target }} = domEvent;
+                    
+                      infoWindow.close();
+                      infoWindow.setContent(marker2.title);
+                      infoWindow.open(marker2.map, marker2);
+                    }});
+                }}
             </script>
         </head>
         <body>
             <h1>Station Finder</h1>
             <form onsubmit="event.preventDefault(); fetchStations();">
-                Latitude: <input id="lat" type="text" value="48.060711110885094"><br>
-                Longitude: <input id="lon" type="text" value="8.533784762385885"><br>
-                Max Distance (km): <input id="max_dist_km" type="text" value="50"><br>
-                Max Stations: <input id="max_stations" type="text" value="5"><br>
+                Latitude: <input id="lat" type="text" value="{lat}"><br>
+                Longitude: <input id="lon" type="text" value="{lon}"><br>
+                Max Distance (km): <input id="max_dist_km" type="text" value="{max_dist_km}"><br>
+                Max Stations: <input id="max_stations" type="text" value="{max_stations}"><br>
                 <input type="submit" value="Find Stations">
             </form>
             <div id="map" style="height: 600px; width: 100%; margin-top:20px;"></div>
         </body>
     </html>
     """
-
+    return html_output, 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8090)
