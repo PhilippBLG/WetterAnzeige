@@ -145,6 +145,12 @@ def render_form():
                                 title: `Home`,
                                 gmpClickable: true,
                             }});
+                    // Add a click listener for each marker, and set up the info window.
+                    marker2.addListener("click", ({{ domEvent, latLng }}) => {{
+                        maik.style.transition = "width 0.5s ease-in-out";
+                        maik.width = maik.width === 44 ? 400 : 44;
+                        const {{ target }} = domEvent;
+                    }});
                     data.forEach(station => {{
                         const WetterStationImg = document.createElement("img");
                         WetterStationImg.src = "https://cdn-icons-png.flaticon.com/512/1809/1809492.png";
@@ -156,19 +162,22 @@ def render_form():
                                 lat: station.latitude,
                                 lng: station.longitude
                             }},
+                            gmpClickable: true,
                             content: WetterStationImg,
-                            title: `Station ID: ${{station.station_id}}`,
+                            title: `Station ID: ${{station.station_id}}`
                         }});
-                    }});
-                    // Add a click listener for each marker, and set up the info window.
-                    marker2.addListener("click", ({{ domEvent, latLng }}) => {{
-                      maik.style.transition = "width 0.5s ease-in-out";
-                      maik.width = 200;
-                      const {{ target }} = domEvent;
-                    
-                      infoWindow.close();
-                      infoWindow.setContent(marker2.title);
-                      infoWindow.open(marker2.map, marker2);
+                        const infoWindow = new google.maps.InfoWindow();
+                        marker.addListener("click", ({{ domEvent, latLng }}) => {{
+                           const {{ target }} = domEvent;
+                           infoWindow.close();
+                           infoWindow.setContent(`
+                              <div>
+                                <h3>${{marker.title}}</h3>
+                                <p>Additional information can go here!</p>
+                              </div>
+                            `);
+                           infoWindow.open(marker.map, marker);
+                       }});
                     }});
                 }}
             </script>
@@ -182,7 +191,7 @@ def render_form():
                 Max Stations: <input id="max_stations" type="text" value="{max_stations}"><br>
                 <input type="submit" value="Find Stations">
             </form>
-            <div id="map" style="height: 600px; width: 100%; margin-top:20px;"></div>
+            <div id="map" style="height: 75vh; width: 100%; margin-top:20px;"></div>
         </body>
     </html>
     """
