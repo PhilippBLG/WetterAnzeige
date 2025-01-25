@@ -14,4 +14,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 EXPOSE 8090
 
 # 6. Flask starten
-CMD [ "python", "app.py" ]
+CMD ["python","-u","app.py"]
