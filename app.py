@@ -13,38 +13,69 @@ def load_and_cache_csv(csv_url):
     response.raise_for_status()
     return response.text.splitlines()
 
+
+def read_ghcnd_stations(url):
+    """Reads and parses the GHCND stations file from a given URL."""
+    # Read the file into a pandas DataFrame
+    stations_pd = pd.read_csv(url, header=None, on_bad_lines='skip', encoding='utf-8', dtype=str)
+
+    data = []
+    for line in stations_pd.values:
+        # Ensure each field is extracted properly and converted to string
+        line_str = ''.join(line)  # Convert array to a single string
+        if len(line_str.strip()) == 0:
+            continue  # Skip empty lines
+
+        # Extract fields using fixed-width slicing
+        fields = [
+            line_str[0:11].strip(),  # Station ID
+            line_str[12:20].strip(),  # Latitude
+            line_str[21:30].strip(),  # Longitude
+            line_str[30:50].strip()  # Add any other fields as needed
+        ]
+
+        try:
+            data.append({
+                'ID': fields[0],
+                'LATITUDE': float(fields[1]),
+                'LONGITUDE': float(fields[2])
+            })
+        except ValueError:
+            # Handle cases where LATITUDE or LONGITUDE cannot be converted to float
+            continue
+
+    df = pd.DataFrame(data)
+    return df
+
+
 def find_stations_within_radius(csv_url, lat, lon, max_dist_km, max_stations):
-    # Load cached CSV content
-    content = load_and_cache_csv(csv_url)
-    reader = csv.reader(content)
+    """Finds stations within a specified radius and yields them immediately."""
+    # Read the station data using the fixed-width parser
+    stations_df = read_ghcnd_stations(csv_url)
 
-    count = 0  # Track the number of stations yielded
-    for row in reader:
-        if count >= max_stations:
-            break
-        station_id = row[0].strip()
-        station_lat = float(row[1])
-        station_lon = float(row[2])
-        dist_km = geodesic((lat, lon), (station_lat, station_lon)).kilometers
+    # Coordinates of the given location
+    given_coords = (lat, lon)
+    count = 0  # Track how many stations have been yielded
 
+    # Iterate over stations and calculate distance
+    for _, row in stations_df.iterrows():
+        station_lat = row['LATITUDE']
+        station_lon = row['LONGITUDE']
+        dist_km = geodesic(given_coords, (station_lat, station_lon)).kilometers
+
+        # If the station is within the maximum distance, yield it immediately
         if dist_km <= max_dist_km:
-            # Prepare the station dictionary
-            station_info = {
-                "station_id": station_id,
+            yield {
+                "station_id": str(row['ID']),
                 "latitude": station_lat,
                 "longitude": station_lon,
                 "distance_km": dist_km
             }
+            count += 1
 
-            # Add average Tmin if available
-            station_data_url = f"https://www1.ncdc.noaa.gov/pub/data/ghcn/daily/by_station/{station_id}.csv.gz"
-            avg_tmin = 5
-            station_info["average_tmin"] = avg_tmin
-
-            count += 1  # Increment the count of yielded stations
-            print(count, max_stations)
-            yield station_info  # Yield the station as soon as it is ready
-
+            # Stop if we've yielded the maximum number of stations
+            if count >= max_stations:
+                break
 
 def calculate_average_tmin(station_data_url):
     import gzip
@@ -75,18 +106,29 @@ def find_stations():
     max_dist_km = float(request.args.get("max_dist_km", 50.0))
     max_stations = int(request.args.get("max_stations", 5))
 
-    def generate_stream():
-        for station in find_stations_within_radius(
-                csv_url=csv_url, lat=lat, lon=lon, max_dist_km=max_dist_km, max_stations=max_stations
-        ):
-            import json
-            print(f"Streaming station: {station['station_id']}")
-            yield f"data: {json.dumps(station)}\n\n"
-        yield "event: end\n"
-        yield "data: complete\n\n"
-        time.sleep(1)  # Keep the connection alive briefly before closing
+    def generate():
+        try:
+            for station in find_stations_within_radius(
+                    csv_url=csv_url, lat=lat, lon=lon, max_dist_km=max_dist_km, max_stations=max_stations
+            ):
+                import json
+                #print(f"Streaming station: {station['station_id']}")
+                yield f"data: {json.dumps(station)}\n\n"
+            time.sleep(1)  # Keep the connection alive briefly before closing
+            yield "data: finished\n\n"
+        except GeneratorExit:
+            app.logger.info("Client disconnected.")
+        except Exception as e:
+            app.logger.error(f"Error during SSE: {e}")
 
-    response = Response(generate_stream(), content_type='text/event-stream')
+    response = Response(generate(), content_type='text/event-stream',
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",  # Ensure the connection remains open
+            "X-Accel-Buffering": "no"  # Disable buffering if using reverse proxy
+        },
+    )
+    response.status_code = 200
     return response
 
 @app.route('/', methods=['GET'])
@@ -113,12 +155,16 @@ def render_form():
                 const max_dist_km = document.getElementById('max_dist_km').value;
                 const max_stations = document.getElementById('max_stations').value;
                 console.log("Calling fetchStations()...");
-                if (eventSource) {{
-                    console.log("Closing existing EventSource connection.");
-                    eventSource.close();
-                }}
                 console.log("Creating new EventSource connection.");
                 eventSource = new EventSource(`/api/find_stations?lat=${{lat}}&lon=${{lon}}&max_dist_km=${{max_dist_km}}&max_stations=${{max_stations}}`);
+                eventSource.addEventListener('message', function(e) {{
+                    console.log(e);
+                    var data = e.data;
+                    if (data === 'finished') {{
+                        console.log('closing connection')
+                        eventSource.close()
+                }}
+                }});
                 console.log("New EventSource created:", eventSource);
                 markers.forEach(marker => marker.setMap(null));
                 markers = [];
@@ -147,8 +193,20 @@ def render_form():
                     maik.width = maik.width === 44 ? 400 : 44;
                     const {{ target }} = domEvent;
                 }});
+                eventSource.onerror = () => {{
+                    console.error("EventSource connection failed.", event);
+                    alert("Verbindung unterbrochen. Bitte erneut versuchen.");
+                }};
+
+                eventSource.onclose = () => {{
+                    console.log("EventSource connection closed.");
+                }};
                 eventSource.onmessage = (event) => {{
                     try {{
+                        if (event.data.includes('finished')) {{
+                            console.log("Stream finished:", event.data);
+                            return; // Exit if it's the end marker
+                        }}
                         const station = JSON.parse(event.data);
                         console.log("Station data received:", station);
                         const WetterStationImg = document.createElement("img");
@@ -202,6 +260,3 @@ def render_form():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8090)
-
-
-#window.onload = async () => {{ await fetchStations(); }};
