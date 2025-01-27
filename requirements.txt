@@ -1,4 +1,6 @@
 flask
+flask-scss
+flask-sqlalchemy
 requests
-geopy
 pandas
+numpy

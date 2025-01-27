@@ -1,11 +1,23 @@
-from flask import Flask, request
-import csv
+from flask import Flask, request, render_template
+from flask_scss import Scss
+from flask_sqlalchemy import SQLAlchemy
 import requests
-from geopy.distance import geodesic
 import time
 import pandas as pd
+import numpy as np
 from functools import lru_cache
-app = Flask(__name__, static_folder='static')
+app = Flask(__name__)
+
+# Function to calculate distances using Haversine formula
+def haversine(lat1, lon1, lat2, lon2):
+    """Calculate the great-circle distance between two points on the Earth."""
+    R = 6371.0  # Radius of the Earth in kilometers
+    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = np.sin(dlat / 2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2.0)**2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+    return R * c
 
 @lru_cache(maxsize=1)
 def load_and_cache_csv(csv_url):
@@ -49,19 +61,19 @@ def read_ghcnd_stations(url):
 
 
 def find_stations_within_radius(csv_url, lat, lon, max_dist_km, max_stations):
-    """Finds stations within a specified radius and yields them immediately."""
+    """Finds stations within a specified radius and yields them immediately using pandas for performance."""
     # Read the station data using the fixed-width parser
     stations_df = read_ghcnd_stations(csv_url)
 
     # Coordinates of the given location
-    given_coords = (lat, lon)
-    count = 0  # Track how many stations have been yielded
+    given_lat, given_lon = lat, lon
+    count = 0
 
-    # Iterate over stations and calculate distance
+    # Iterate through stations and calculate distance on-the-fly
     for _, row in stations_df.iterrows():
         station_lat = row['LATITUDE']
         station_lon = row['LONGITUDE']
-        dist_km = geodesic(given_coords, (station_lat, station_lon)).kilometers
+        dist_km = haversine(given_lat, given_lon, station_lat, station_lon)
 
         # If the station is within the maximum distance, yield it immediately
         if dist_km <= max_dist_km:
@@ -69,7 +81,7 @@ def find_stations_within_radius(csv_url, lat, lon, max_dist_km, max_stations):
                 "station_id": str(row['ID']),
                 "latitude": station_lat,
                 "longitude": station_lon,
-                "distance_km": dist_km
+                "distance_km": dist_km,
             }
             count += 1
 
@@ -77,24 +89,80 @@ def find_stations_within_radius(csv_url, lat, lon, max_dist_km, max_stations):
             if count >= max_stations:
                 break
 
-def calculate_average_tmin(station_data_url):
+@app.route('/api/station_data', methods=['GET'])
+def get_station_weather_data():
+    station_id = request.args.get('station_id')
+    if not station_id:
+        return {"error": "Missing station_id"}, 400
+    station_data_url = f'https://www1.ncdc.noaa.gov/pub/data/ghcn/daily/by_station/{station_id}.csv.gz'
     import gzip
-    response = requests.get(station_data_url)
+    response = requests.get(station_data_url, stream=True)
     response.raise_for_status()
     with gzip.GzipFile(fileobj=response.raw) as f:
-        csv_content = f.read().decode("utf-8")
-    reader = csv.reader(csv_content.splitlines())
-    tmin_values = []
-    for row in reader:
-        try:
-            if row[2] == "TMIN":
-                tmin_values.append(float(row[3]) / 10.0)  # Convert to Celsius
-        except (IndexError, ValueError):
-            continue
-    if tmin_values:
-        print(sum(tmin_values) / len(tmin_values))
-        return sum(tmin_values) / len(tmin_values)
-    return None
+        data = pd.read_csv(
+            f,
+            header=None,
+            names=['ID', 'DATE', 'ELEMENT', 'VALUE', 'M-FLAG', 'Q-FLAG', 'S-FLAG', 'OBS-TIME'],
+            dtype={
+                'ID': str,  # Station ID is likely a string
+                'DATE': str,  # Date is a string
+                'ELEMENT': str,  # Element type is a string (e.g., TMAX, TMIN)
+                'VALUE': float,  # Values are decimal numbers
+                'M-FLAG': str,
+                'Q-FLAG': str,
+                'S-FLAG': str,
+                'OBS-TIME': str  # Observation time is probably a string
+            },
+            low_memory=False
+        )
+
+    # Jahr aus Datum extrahieren
+
+    data['YEAR'] = data['DATE'].astype(str).str[:4]
+
+    # Filter relevant elements
+    filtered_data = data[data['ELEMENT'].isin(['TMAX', 'TMIN', 'PRCP'])].copy()
+
+    # Clean and convert the values
+    filtered_data.loc[:, 'VALUE'] = pd.to_numeric(filtered_data['VALUE'], errors='coerce')
+
+    # Scale the values to correct units (°C for temperature, mm for precipitation)
+    filtered_data.loc[:, 'VALUE'] = filtered_data.apply(
+        lambda row: row['VALUE'] / 10 if row['ELEMENT'] in ['TMAX', 'TMIN'] else row['VALUE'], axis=1
+    )
+
+    # Group temperature data by year and element to calculate max, min, and averages
+    temp_data = filtered_data[filtered_data['ELEMENT'].isin(['TMAX', 'TMIN'])]
+    temp_summary = temp_data.groupby(['YEAR', 'ELEMENT'])['VALUE'].agg(['max', 'min', 'mean']).unstack()
+
+    # Extract temperature data
+    max_temps = temp_summary['max']['TMAX'] if 'TMAX' in temp_summary['max'] else None
+    min_temps = temp_summary['min']['TMIN'] if 'TMIN' in temp_summary['min'] else None
+
+    # Calculate the overall average temperature for the year
+    overall_avg_temp = temp_data.groupby('YEAR')['VALUE'].mean()
+
+    # Process rain data (`PRCP`)
+    rain_data = filtered_data[filtered_data['ELEMENT'] == 'PRCP']
+
+    # Calculate yearly average rain
+    avg_rain_per_year = rain_data.groupby('YEAR')['VALUE'].mean()
+
+    # Calculate overall average rain (`Avg_Rain`)
+
+    # Combine results into a single DataFrame
+    result = pd.DataFrame({
+        'Max_Temperature (°C)': max_temps,
+        'Min_Temperature (°C)': min_temps,
+        'Year_Avg_Temperature (°C)': overall_avg_temp,
+        'Year_Avg_Rain (mm)': avg_rain_per_year
+    })
+
+    # Handle missing values (if any years are incomplete)
+    result = result.fillna(0)
+
+    # Return the result as JSON
+    return result.to_json(orient='index'), 200
 
 @app.route('/api/find_stations', methods=['GET'])
 def find_stations():
@@ -112,7 +180,6 @@ def find_stations():
                     csv_url=csv_url, lat=lat, lon=lon, max_dist_km=max_dist_km, max_stations=max_stations
             ):
                 import json
-                #print(f"Streaming station: {station['station_id']}")
                 yield f"data: {json.dumps(station)}\n\n"
             time.sleep(1)  # Keep the connection alive briefly before closing
             yield "data: finished\n\n"
@@ -125,138 +192,14 @@ def find_stations():
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",  # Ensure the connection remains open
-            "X-Accel-Buffering": "no"  # Disable buffering if using reverse proxy
         },
     )
     response.status_code = 200
     return response
 
-@app.route('/', methods=['GET'])
-def render_form():
-    """
-    HTML-Seite mit Formular und Google Maps anzeigen.
-    """
-    lat = request.args.get("lat", 48.060711110885094)  # Default-Werte
-    lon = request.args.get("lon", 8.533784762385885)
-    max_dist_km = request.args.get("max_dist_km", 50.0)
-    max_stations = request.args.get("max_stations", 1)
-    html_output = f"""
-    <html>
-        <head>
-            <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAxOzRDNqtyLTKUK83-j7auXehzWmoCoaY&libraries=marker">
-            </script>
-        <script>
-            let markers = [];
-            let map = null;
-            let eventSource = null;
-            async function fetchStations() {{
-                const lat = document.getElementById('lat').value;
-                const lon = document.getElementById('lon').value;
-                const max_dist_km = document.getElementById('max_dist_km').value;
-                const max_stations = document.getElementById('max_stations').value;
-                console.log("Calling fetchStations()...");
-                console.log("Creating new EventSource connection.");
-                eventSource = new EventSource(`/api/find_stations?lat=${{lat}}&lon=${{lon}}&max_dist_km=${{max_dist_km}}&max_stations=${{max_stations}}`);
-                eventSource.addEventListener('message', function(e) {{
-                    console.log(e);
-                    var data = e.data;
-                    if (data === 'finished') {{
-                        console.log('closing connection')
-                        eventSource.close()
-                }}
-                }});
-                console.log("New EventSource created:", eventSource);
-                markers.forEach(marker => marker.setMap(null));
-                markers = [];
-                if (!map) {{
-                    map = new google.maps.Map(document.getElementById("map"), {{
-                        zoom: 10,
-                        center: {{ lat: parseFloat(lat), lng: parseFloat(lon) }},
-                        mapId: "Map1"
-                    }});
-                }} else {{
-                    map.setCenter({{ lat: parseFloat(lat), lng: parseFloat(lon) }});
-                }}
-                const maik = document.createElement("img");
-                maik.src = "/static/Subject.png";
-                maik.width = 44;
-                const marker2 = new google.maps.marker.AdvancedMarkerElement({{
-                            map: map,
-                            position: {{ lat: parseFloat(lat), lng: parseFloat(lon) }},
-                            content: maik,
-                            title: `Home`,
-                            gmpClickable: true,
-                        }});
-                // Add a click listener for each marker, and set up the info window.
-                marker2.addListener("click", ({{ domEvent, latLng }}) => {{
-                    maik.style.transition = "width 0.5s ease-in-out";
-                    maik.width = maik.width === 44 ? 400 : 44;
-                    const {{ target }} = domEvent;
-                }});
-                eventSource.onerror = () => {{
-                    console.error("EventSource connection failed.", event);
-                    alert("Verbindung unterbrochen. Bitte erneut versuchen.");
-                }};
-
-                eventSource.onclose = () => {{
-                    console.log("EventSource connection closed.");
-                }};
-                eventSource.onmessage = (event) => {{
-                    try {{
-                        if (event.data.includes('finished')) {{
-                            console.log("Stream finished:", event.data);
-                            return; // Exit if it's the end marker
-                        }}
-                        const station = JSON.parse(event.data);
-                        console.log("Station data received:", station);
-                        const WetterStationImg = document.createElement("img");
-                        WetterStationImg.src = "https://cdn-icons-png.flaticon.com/512/1809/1809492.png";
-                        WetterStationImg.width = 44;
-                        WetterStationImg.height = 44;
-                        let marker = new google.maps.marker.AdvancedMarkerElement({{
-                            map: map,
-                            position: {{
-                                lat: station.latitude,
-                                lng: station.longitude
-                            }},
-                            gmpClickable: true,
-                            content: WetterStationImg,
-                            title: `Station ID: ${{station.station_id}}`
-                        }});
-                        markers.push(marker);
-                        const infoWindow = new google.maps.InfoWindow();
-                        marker.addListener("click", ({{ domEvent, latLng }}) => {{
-                           const {{ target }} = domEvent;
-                           infoWindow.close();
-                           infoWindow.setContent(`
-                              <div>
-                                <h3>${{marker.title}}</h3>
-                                <p>Average Temperature ${{station.average_tmin ?? "N/A"}}</p>
-                              </div>
-                            `);
-                           infoWindow.open(marker.map, marker);
-                        }});
-                    }} catch (e) {{
-                        console.error("Error parsing station data:", e);
-                    }}
-                }}
-            }};
-            </script>
-        </head>
-        <body>
-            <h1>Station Finder</h1>
-            <form onsubmit="event.preventDefault(); fetchStations();">
-                Latitude: <input id="lat" type="text" value="{lat}"><br>
-                Longitude: <input id="lon" type="text" value="{lon}"><br>
-                Max Distance (km): <input id="max_dist_km" type="text" value="{max_dist_km}"><br>
-                Max Stations: <input id="max_stations" type="text" value="{max_stations}"><br>
-                <input type="submit" value="Find Stations">
-            </form>
-            <div id="map" style="height: 75vh; width: 100%; margin-top:20px;"></div>
-        </body>
-    </html>
-    """
-    return html_output, 200
+@app.route("/")
+def index():
+    return render_template('index.html')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8090)

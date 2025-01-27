@@ -1,0 +1,322 @@
+{% extends 'base.html' %}
+{% block header %}
+<title>WetterAnzeige</title>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAxOzRDNqtyLTKUK83-j7auXehzWmoCoaY&libraries=marker"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const DEFAULT_MAP_ID = "Map1";
+const EVENT_SOURCE_URL = "/api/find_stations";
+const HOME_ICON_URL = "/static/Subject.png";
+const STATION_ICON_URL = "https://cdn-icons-png.flaticon.com/512/1809/1809492.png";
+let markers = [];
+let map = null;
+let eventSource = null;
+function getInputValues() {
+    return {
+        lat: document.getElementById('lat').value,
+        lon: document.getElementById('lon').value,
+        max_dist_km: document.getElementById('max_dist_km').value,
+        max_stations: document.getElementById('max_stations').value,
+    };
+}
+function validateInputs({ lat, lon, max_dist_km, max_stations }) {
+    return (
+        !isNaN(lat) && !isNaN(lon) &&
+        !isNaN(max_dist_km) && !isNaN(max_stations) &&
+        lat && lon && max_dist_km > 0 && max_stations > 0
+    );
+}
+function initializeMap(lat, lon) {
+    if (!map) {
+        map = new google.maps.Map(document.getElementById("map"), {
+            zoom: 10,
+            center: { lat: parseFloat(lat), lng: parseFloat(lon) },
+            gestureHandling: "greedy",
+            mapId: DEFAULT_MAP_ID
+        });
+    } else {
+        map.setCenter({ lat: parseFloat(lat), lng: parseFloat(lon) });
+    }
+}
+function clearMarkers() {
+    markers.forEach(marker => marker.setMap(null));
+    markers = [];
+}
+function closeEventSource() {
+    if (eventSource) {
+        console.log("Closing pre-existing EventSource connection.");
+        eventSource.close();
+    }
+}
+function addHomeMarker(lat, lon) {
+    const homeIcon = document.createElement("img");
+    homeIcon.src = HOME_ICON_URL;
+    homeIcon.width = 44;
+    const homeMarker = new google.maps.marker.AdvancedMarkerElement({
+        map: map,
+        position: { lat: parseFloat(lat), lng: parseFloat(lon) },
+        content: homeIcon,
+        title: 'Home',
+        gmpClickable: true,
+    });
+    homeMarker.addListener("click", () => {
+        homeIcon.style.transition = "width 0.5s ease-in-out";
+        homeIcon.width = homeIcon.width === 44 ? 400 : 44;
+    });
+    markers.push(homeMarker);
+}
+function addStationMarker(station) {
+    const stationIcon = document.createElement("img");
+    stationIcon.src = STATION_ICON_URL;
+    stationIcon.width = 44;
+    stationIcon.height = 44;
+    const stationMarker = new google.maps.marker.AdvancedMarkerElement({
+        map: map,
+        position: {lat: station.latitude, lng: station.longitude},
+        gmpClickable: true,
+        content: stationIcon,
+        title: `Station ID: ${station.station_id}`,
+    });
+    stationMarker.addListener("click", async () => {
+        // Show the station ID in the temp-graph div
+    document.getElementById('temp-graph').innerHTML = `<h5>Loading weather data for station: ${station.station_id}...</h5>`;
+
+        try {
+            // Fetch weather data from the server
+            const response = await fetch(`/api/station_data?station_id=${station.station_id}`);
+            if (!response.ok) {
+                throw new Error("Failed to fetch weather data");
+            }
+            const weatherData = await response.json();
+                const years = Object.keys(weatherData);
+                const maxTemps = years.map(year => weatherData[year]['Max_Temperature (°C)'] || null);
+                const minTemps = years.map(year => weatherData[year]['Min_Temperature (°C)'] || null);
+                const avgTemps = years.map(year => weatherData[year]['Year_Avg_Temperature (°C)'] || null);
+                const avgRainPerYear = years.map(year => weatherData[year]['Year_Avg_Rain (mm)'] || null);
+                const avgRain = (avgRainPerYear.reduce((sum, value) => sum + value, 0) / avgRainPerYear.length).toFixed(2);
+                const maxTempYear = years.reduce(
+                    (acc, year) => {
+                        const temp = weatherData[year]['Max_Temperature (°C)'];
+                        return temp > acc.maxTemp ? { year, maxTemp: temp } : acc;
+                    },
+                    { year: null, maxTemp: -Infinity }
+                );
+                const minTempYear = years.reduce(
+                    (acc, year) => {
+                        const temp = weatherData[year]['Min_Temperature (°C)'];
+                        return temp < acc.minTemp ? { year, minTemp: temp } : acc;
+                    },
+                    { year: null, minTemp: Infinity }
+                );
+                document.getElementById('temp-graph').innerHTML = `
+                    <div>
+                        <canvas id="weatherChart"></canvas>
+                    </div>`;
+                document.getElementById('max-temp').innerHTML = `
+                    <div class="h-100 d-flex flex-column justify-content-center align-items-center">
+                        <h4>Max Temperature</h4> <!-- Title -->
+                        <div class="fw-bold display-4" style="color: #FF6384FF">${maxTempYear.maxTemp}°C</div> <!-- Large and bold temperature -->
+                        <div class="text-muted small">Measured in ${maxTempYear.year}</div> <!-- Small, muted year information -->
+                    </div>`
+                document.getElementById('min-temp').innerHTML = `
+                    <div class="h-100 d-flex flex-column justify-content-center align-items-center">
+                        <h4>Min Temperature</h4> <!-- Title -->
+                        <div class="fw-bold display-4" style="color: #36A2EBFF">${minTempYear.minTemp}°C</div> <!-- Large and bold temperature -->
+                        <div class="text-muted small">Measured in ${minTempYear.year}</div> <!-- Small, muted year information -->
+                    </div>`
+
+                document.getElementById('rain-amount').innerHTML = `
+                    <div class="h-100 d-flex flex-column justify-content-center align-items-center">
+                        <h4>Average Rain Amount</h4> <!-- Title -->
+                        <div class="rain-fill" style="position: absolute; bottom: 0; width: 100%; background-color: #36A2EB; transition: height 0.5s;"></div>
+                        <div class="fw-bold display-4 mt-2" style="color: #36A2EBFF">${avgRain}mm</div> <!-- Large and bold temperature -->
+                    </div>`;
+
+                // Calculate the fill height as a percentage
+                const maxRain = 200; // Set a maximum avgRain value for scaling visualization
+                const fillHeight = Math.min((avgRain / maxRain) * 100, 100); // Scale height and cap it at 100%
+
+                // Set the height of the blue fill dynamically
+                document.querySelector('.rain-fill').style.height = `${fillHeight}%`;
+
+                const ctx = document.getElementById('weatherChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: years,
+                        datasets: [
+                            {
+                                label: 'Max Temperature (°C)',
+                                data: maxTemps,
+                                borderColor: 'rgba(255, 99, 132, 1)',
+                                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                                fill: false
+                            },
+                            {
+                                label: 'Min Temperature (°C)',
+                                data: minTemps,
+                                borderColor: 'rgba(54, 162, 235, 1)',
+                                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                                fill: false
+                            },
+                            {
+                                label: 'Avg Temperature (°C)',
+                                data: avgTemps,
+                                borderColor: 'rgba(75, 192, 192, 1)',
+                                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                                fill: false
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: { position: 'top' },
+                            tooltip: { mode: 'index', intersect: false }
+                        },
+                        interaction: { mode: 'index', intersect: false },
+                        scales: {
+                            x: { title: { display: true, text: 'Year' } },
+                            y: { title: { display: true, text: 'Temperature (°C)' } }
+                        }
+                    }
+                })
+        } catch (error) {
+            console.error("Error fetching or displaying weather data:", error);
+            document.getElementById('temp-graph').innerText = "Failed to load weather data.";
+        }
+    });
+
+    markers.push(stationMarker);
+}
+function setupEventSource({ lat, lon, max_dist_km, max_stations }) {
+    const url = `${EVENT_SOURCE_URL}?lat=${lat}&lon=${lon}&max_dist_km=${max_dist_km}&max_stations=${max_stations}`;
+    closeEventSource();
+    eventSource = new EventSource(url);
+    eventSource.onerror = () => {
+        console.error("EventSource connection failed.");
+        alert("Verbindung unterbrochen. Bitte erneut versuchen.");
+    };
+    eventSource.onmessage = (event) => {
+        if (event.data === "finished") {
+            console.log("Stream finished.");
+            eventSource.close();
+            return;
+        }
+        try {
+            const station = JSON.parse(event.data);
+            addStationMarker(station);
+        } catch (e) {
+            console.error("Failed to parse station data:", e);
+        }
+    };
+}
+async function fetchStations() {
+    const inputValues = getInputValues();
+    const address = document.getElementById('address').value.trim();
+    let coordinates = null;
+    if (address) {
+        coordinates = await geocodeAddress(address);
+        if (!coordinates) {
+            alert("Unable to find location for the provided address or geocoding failed.");
+            return;
+        }
+        inputValues.lat = coordinates.lat;
+        inputValues.lon = coordinates.lon;
+    }
+    if (!validateInputs(inputValues)) {
+        alert("Please enter valid inputs.");
+        return;
+    }
+
+    clearMarkers();
+    initializeMap(inputValues.lat, inputValues.lon);
+    addHomeMarker(inputValues.lat, inputValues.lon);
+    setupEventSource(inputValues);
+}
+
+async function geocodeAddress(address) {
+    const geocoder = new google.maps.Geocoder(); // Create Geocoder instance
+    return new Promise((resolve, reject) => {
+        geocoder.geocode({ address: address }, (results, status) => {
+            if (status === google.maps.GeocoderStatus.OK && results.length > 0) {
+                const location = results[0].geometry.location;
+                resolve({ lat: location.lat(), lon: location.lng() });
+            } else {
+                console.warn("No results found for the address, or request failed:", status);
+                resolve(null);
+            }
+        });
+    });
+}
+</script>
+{% endblock %}
+{% block content %}
+<div class="container-fluid p-1 bg-dark" style="height: 100vh">
+    <div class="row gx-3 h-100" style="margin-left: unset; margin-right: unset;">
+        <!-- Sidebar on the left -->
+        <div class="col-3 shadow rounded bg-light p-4" style="overflow-y: auto;">
+            <h1>Station Finder</h1>
+            <form class="row mt-4 g-3 p-4" onsubmit="event.preventDefault(); fetchStations();">
+                <div class="col-md-12">
+                    <label for="address" class="form-label">Address:</label>
+                    <input id="address" type="text" class="form-control" placeholder="Enter address">
+                </div>
+                <div class="col-md-6">
+                    <label for="lat" class="form-label">Latitude:</label>
+                    <input id="lat" type="text" class="form-control" placeholder="Latitude" value="48.060711110885094">
+                </div>
+                <div class="col-md-6">
+                    <label for="lon" class="form-label">Longitude:</label>
+                    <input id="lon" type="text" class="form-control" placeholder="Longitude" value="8.533784762385885">
+                </div>
+                <div class="col-md-6">
+                    <label for="max_dist_km" class="form-label">Max Distance (km):</label>
+                    <input id="max_dist_km" type="text" class="form-control" placeholder="Max Distance (km)" value="50">
+                </div>
+                <div class="col-md-6">
+                    <label for="max_stations" class="form-label">Max Stations:</label>
+                    <input id="max_stations" type="text" class="form-control" placeholder="Max Stations" value="50">
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn border btn-light w-100">
+                        Find Stations
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Main content on the right -->
+        <div class="col-9 h-100 d-flex flex-column">
+            <div class="flex-fill row gx-2">
+                <!-- Temperature Graph -->
+                <div class="col-md-3">
+                    <div id="temp-graph" class="shadow rounded bg-light p-4 h-100"></div>
+                </div>
+
+                <!-- Max Temperature -->
+                <div class="col-md-3">
+                    <div id="max-temp" class="shadow rounded bg-light p-4 h-100"></div>
+                </div>
+
+                <!-- Additional Max Temperature -->
+                <div class="col-md-3">
+                    <div id="min-temp" class="shadow rounded bg-light p-4 h-100"></div>
+                </div>
+
+                <!-- Additional Rain Amount -->
+                <div class="col-md-3">
+                    <div id="rain-amount" class="shadow rounded bg-light p-4 h-100" style="position: relative; overflow: hidden"></div>
+                </div>
+            </div>
+
+            <!-- Map Section -->
+            <div class="row mt-2">
+                <div class="col-12">
+                    <div id="map" class="shadow rounded" style="height: 75vh;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
