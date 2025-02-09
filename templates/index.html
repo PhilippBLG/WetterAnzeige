@@ -125,20 +125,6 @@ function addStationMarker(station) {
                         <div class="text-muted small">Measured in ${minTempYear.year}</div> <!-- Small, muted year information -->
                     </div>`
 
-                document.getElementById('rain-amount').innerHTML = `
-                    <div class="h-100 d-flex flex-column justify-content-center align-items-center">
-                        <h4>Average Rain Amount</h4> <!-- Title -->
-                        <div class="rain-fill" style="position: absolute; bottom: 0; width: 100%; background-color: #36A2EB; transition: height 0.5s;"></div>
-                        <div class="fw-bold display-4 mt-2" style="color: #36A2EBFF">${avgRain}mm</div> <!-- Large and bold temperature -->
-                    </div>`;
-
-                // Calculate the fill height as a percentage
-                const maxRain = 200; // Set a maximum avgRain value for scaling visualization
-                const fillHeight = Math.min((avgRain / maxRain) * 100, 100); // Scale height and cap it at 100%
-
-                // Set the height of the blue fill dynamically
-                document.querySelector('.rain-fill').style.height = `${fillHeight}%`;
-
                 const ctx = document.getElementById('weatherChart').getContext('2d');
                 new Chart(ctx, {
                     type: 'line',
@@ -290,7 +276,7 @@ async function geocodeAddress(address) {
         <div class="col-9 h-100 d-flex flex-column">
             <div class="flex-fill row gx-2">
                 <!-- Temperature Graph -->
-                <div class="col-md-3">
+                <div class="col-md-6">
                     <div id="temp-graph" class="shadow rounded bg-light p-4 h-100"></div>
                 </div>
 
@@ -302,11 +288,6 @@ async function geocodeAddress(address) {
                 <!-- Additional Max Temperature -->
                 <div class="col-md-3">
                     <div id="min-temp" class="shadow rounded bg-light p-4 h-100"></div>
-                </div>
-
-                <!-- Additional Rain Amount -->
-                <div class="col-md-3">
-                    <div id="rain-amount" class="shadow rounded bg-light p-4 h-100" style="position: relative; overflow: hidden"></div>
                 </div>
             </div>
 
