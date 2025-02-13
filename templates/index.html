@@ -3,6 +3,7 @@
 <title>WetterAnzeige</title>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAxOzRDNqtyLTKUK83-j7auXehzWmoCoaY&libraries=marker"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
 <script>
 const DEFAULT_MAP_ID = "Map1";
 const EVENT_SOURCE_URL = "/api/find_stations";
@@ -11,12 +12,15 @@ const STATION_ICON_URL = "https://cdn-icons-png.flaticon.com/512/1809/1809492.pn
 let markers = [];
 let map = null;
 let eventSource = null;
+let cityCircle = null;
 function getInputValues() {
     return {
         lat: document.getElementById('lat').value,
         lon: document.getElementById('lon').value,
         max_dist_km: document.getElementById('max_dist_km').value,
         max_stations: document.getElementById('max_stations').value,
+        firstyear: document.getElementById('firstyear').value,
+        lastyear: document.getElementById('lastyear').value,
     };
 }
 function validateInputs({ lat, lon, max_dist_km, max_stations }) {
@@ -48,7 +52,7 @@ function closeEventSource() {
         eventSource.close();
     }
 }
-function addHomeMarker(lat, lon) {
+function addHomeMarker(lat, lon, dist) {
     const homeIcon = document.createElement("img");
     homeIcon.src = HOME_ICON_URL;
     homeIcon.width = 44;
@@ -58,6 +62,19 @@ function addHomeMarker(lat, lon) {
         content: homeIcon,
         title: 'Home',
         gmpClickable: true,
+    });
+    if (cityCircle) {
+        cityCircle.setMap(null);
+    }
+    cityCircle = new google.maps.Circle({
+      strokeColor: "#FF0000",
+      strokeOpacity: 0.8,
+      strokeWeight: 2,
+      fillColor: "#FF0000",
+      fillOpacity: 0.05,
+      map: map,
+      center: { lat: parseFloat(lat), lng: parseFloat(lon) },
+      radius: dist * 1000,
     });
     homeMarker.addListener("click", () => {
         homeIcon.style.transition = "width 0.5s ease-in-out";
@@ -72,111 +89,320 @@ function addStationMarker(station) {
     stationIcon.height = 44;
     const stationMarker = new google.maps.marker.AdvancedMarkerElement({
         map: map,
-        position: {lat: station.latitude, lng: station.longitude},
+        position: { lat: station.latitude, lng: station.longitude },
         gmpClickable: true,
         content: stationIcon,
         title: `Station ID: ${station.station_id}`,
+        collisionBehavior: "OPTIONAL_AND_HIDES_LOWER_PRIORITY",
     });
-    stationMarker.addListener("click", async () => {
-        // Show the station ID in the temp-graph div
-    document.getElementById('temp-graph').innerHTML = `<h5>Loading weather data for station: ${station.station_id}...</h5>`;
 
+        stationMarker.addListener("click", async () => {
+        document.getElementById('temp-graph').innerHTML = `<h5>Loading weather data for station: ${station.station_id}...</h5>`;
         try {
-            // Fetch weather data from the server
-            const response = await fetch(`/api/station_data?station_id=${station.station_id}`);
+            const inputValues = getInputValues();
+            const response = await fetch(`/api/station_data?station_id=${station.station_id}&firstyear=${inputValues.firstyear}&lastyear=${inputValues.lastyear}`);
             if (!response.ok) {
                 throw new Error("Failed to fetch weather data");
             }
+            // Nutze await response.json() zum Parsen
             const weatherData = await response.json();
-                const years = Object.keys(weatherData);
-                const maxTemps = years.map(year => weatherData[year]['Max_Temperature (°C)'] || null);
-                const minTemps = years.map(year => weatherData[year]['Min_Temperature (°C)'] || null);
-                const avgTemps = years.map(year => weatherData[year]['Year_Avg_Temperature (°C)'] || null);
-                const avgRainPerYear = years.map(year => weatherData[year]['Year_Avg_Rain (mm)'] || null);
-                const avgRain = (avgRainPerYear.reduce((sum, value) => sum + value, 0) / avgRainPerYear.length).toFixed(2);
-                const maxTempYear = years.reduce(
-                    (acc, year) => {
-                        const temp = weatherData[year]['Max_Temperature (°C)'];
-                        return temp > acc.maxTemp ? { year, maxTemp: temp } : acc;
-                    },
-                    { year: null, maxTemp: -Infinity }
-                );
-                const minTempYear = years.reduce(
-                    (acc, year) => {
-                        const temp = weatherData[year]['Min_Temperature (°C)'];
-                        return temp < acc.minTemp ? { year, minTemp: temp } : acc;
-                    },
-                    { year: null, minTemp: Infinity }
-                );
-                document.getElementById('temp-graph').innerHTML = `
-                    <div>
-                        <canvas id="weatherChart"></canvas>
-                    </div>`;
-                document.getElementById('max-temp').innerHTML = `
-                    <div class="h-100 d-flex flex-column justify-content-center align-items-center">
-                        <h4>Max Temperature</h4> <!-- Title -->
-                        <div class="fw-bold display-4" style="color: #FF6384FF">${maxTempYear.maxTemp}°C</div> <!-- Large and bold temperature -->
-                        <div class="text-muted small">Measured in ${maxTempYear.year}</div> <!-- Small, muted year information -->
-                    </div>`
-                document.getElementById('min-temp').innerHTML = `
-                    <div class="h-100 d-flex flex-column justify-content-center align-items-center">
-                        <h4>Min Temperature</h4> <!-- Title -->
-                        <div class="fw-bold display-4" style="color: #36A2EBFF">${minTempYear.minTemp}°C</div> <!-- Large and bold temperature -->
-                        <div class="text-muted small">Measured in ${minTempYear.year}</div> <!-- Small, muted year information -->
-                    </div>`
 
-                const ctx = document.getElementById('weatherChart').getContext('2d');
-                new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: years,
-                        datasets: [
-                            {
-                                label: 'Max Temperature (°C)',
-                                data: maxTemps,
-                                borderColor: 'rgba(255, 99, 132, 1)',
-                                backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                                fill: false
-                            },
-                            {
-                                label: 'Min Temperature (°C)',
-                                data: minTemps,
-                                borderColor: 'rgba(54, 162, 235, 1)',
-                                backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                                fill: false
-                            },
-                            {
-                                label: 'Avg Temperature (°C)',
-                                data: avgTemps,
-                                borderColor: 'rgba(75, 192, 192, 1)',
-                                backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                                fill: false
-                            }
-                        ]
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: {
-                            legend: { position: 'top' },
-                            tooltip: { mode: 'index', intersect: false }
+            const yearlySummary = weatherData.yearly_summary;
+            const seasonalSummary = weatherData.seasonal_summary;
+            const years = Object.keys(yearlySummary);
+
+            // Jahresdaten für den Chart
+            const maxTemps = years.map(year => yearlySummary[year]['Max_Temperature (°C)'] || null);
+            const minTemps = years.map(year => yearlySummary[year]['Min_Temperature (°C)'] || null);
+            const avgTemps = years.map(year => yearlySummary[year]['Year_Avg_Temperature (°C)'] || null);
+
+            const maxTempYear = years.reduce((acc, year) => {
+                const temp = yearlySummary[year]['Max_Temperature (°C)'];
+                return temp > acc.maxTemp ? { year, maxTemp: temp } : acc;
+            }, { year: null, maxTemp: -Infinity });
+
+            const minTempYear = years.reduce((acc, year) => {
+                const temp = yearlySummary[year]['Min_Temperature (°C)'];
+                return temp < acc.minTemp ? { year, minTemp: temp } : acc;
+            }, { year: null, minTemp: Infinity });
+
+            // Chart-Oberfläche erstellen
+            document.getElementById('temp-graph').innerHTML = `
+                <div>
+                    <canvas id="weatherChart"></canvas>
+                </div>`;
+
+            document.getElementById('max-temp').innerHTML = `
+                <div class="h-100 d-flex flex-column justify-content-center align-items-center">
+                    <h4>Max Temperature</h4>
+                    <div class="fw-bold display-4" style="color: #FF6384FF">${maxTempYear.maxTemp}°C</div>
+                    <div class="text-muted small">Measured in ${maxTempYear.year}</div>
+                </div>`;
+            document.getElementById('min-temp').innerHTML = `
+                <div class="h-100 d-flex flex-column justify-content-center align-items-center">
+                    <h4>Min Temperature</h4>
+                    <div class="fw-bold display-4" style="color: #36A2EBFF">${minTempYear.minTemp}°C</div>
+                    <div class="text-muted small">Measured in ${minTempYear.year}</div>
+                </div>`;
+
+            // Für jede Jahreszeit je ein Array:
+            const winterMax = years.map(year =>
+              (seasonalSummary[year] && seasonalSummary[year]["Winter"])
+                ? seasonalSummary[year]["Winter"]["Max_Temperature (°C)"]
+                : null
+            );
+            const winterMin = years.map(year =>
+              (seasonalSummary[year] && seasonalSummary[year]["Winter"])
+                ? seasonalSummary[year]["Winter"]["Min_Temperature (°C)"]
+                : null
+            );
+
+            const springMax = years.map(year =>
+              (seasonalSummary[year] && seasonalSummary[year]["Spring"])
+                ? seasonalSummary[year]["Spring"]["Max_Temperature (°C)"]
+                : null
+            );
+            const springMin = years.map(year =>
+              (seasonalSummary[year] && seasonalSummary[year]["Spring"])
+                ? seasonalSummary[year]["Spring"]["Min_Temperature (°C)"]
+                : null
+            );
+
+            const summerMax = years.map(year =>
+              (seasonalSummary[year] && seasonalSummary[year]["Summer"])
+                ? seasonalSummary[year]["Summer"]["Max_Temperature (°C)"]
+                : null
+            );
+            const summerMin = years.map(year =>
+              (seasonalSummary[year] && seasonalSummary[year]["Summer"])
+                ? seasonalSummary[year]["Summer"]["Min_Temperature (°C)"]
+                : null
+            );
+
+            const autumnMax = years.map(year =>
+              (seasonalSummary[year] && seasonalSummary[year]["Autumn"])
+                ? seasonalSummary[year]["Autumn"]["Max_Temperature (°C)"]
+                : null
+            );
+            const autumnMin = years.map(year =>
+              (seasonalSummary[year] && seasonalSummary[year]["Autumn"])
+                ? seasonalSummary[year]["Autumn"]["Min_Temperature (°C)"]
+                : null
+            );
+            const ctx = document.getElementById('weatherChart').getContext('2d');
+            const weatherChart = new Chart(ctx, {
+                type: 'line',
+                tension: 1,
+                data: {
+                    labels: years,
+                    datasets: [
+                        // Volljahreswerte:
+                        {
+                            label: 'Full Year Max (°C)',
+                            data: maxTemps,
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                            fill: false,
                         },
-                        interaction: { mode: 'index', intersect: false },
-                        scales: {
-                            x: { title: { display: true, text: 'Year' } },
-                            y: { title: { display: true, text: 'Temperature (°C)' } }
+                        {
+                            label: 'Full Year Min (°C)',
+                            data: minTemps,
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                            fill: false,
+                        },
+                        {
+                            label: 'Full Year Avg (°C)',
+                            data: avgTemps,
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                            fill: false,
+                        },
+                        // Saisonale Werte (standardmäßig hidden, mit gestrichelten Linien):
+                        {
+                            label: 'Winter Max (°C)',
+                            data: winterMax,
+                            borderColor: 'rgba(255, 159, 64, 1)',
+                            backgroundColor: 'rgba(255, 159, 64, 0.2)',
+                            fill: false,
+                            borderDash: [5, 5],
+                            hidden: true
+                        },
+                        {
+                            label: 'Winter Min (°C)',
+                            data: winterMin,
+                            borderColor: 'rgba(255, 159, 64, 1)',
+                            backgroundColor: 'rgba(255, 159, 64, 0.2)',
+                            fill: false,
+                            borderDash: [5, 5],
+                            hidden: true
+                        },
+                        {
+                            label: 'Spring Max (°C)',
+                            data: springMax,
+                            borderColor: 'rgba(153, 102, 255, 1)',
+                            backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                            fill: false,
+                            borderDash: [5, 5],
+                            hidden: true
+                        },
+                        {
+                            label: 'Spring Min (°C)',
+                            data: springMin,
+                            borderColor: 'rgba(153, 102, 255, 1)',
+                            backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                            fill: false,
+                            borderDash: [5, 5],
+                            hidden: true
+                        },
+                        {
+                            label: 'Summer Max (°C)',
+                            data: summerMax,
+                            borderColor: 'rgba(255, 206, 86, 1)',
+                            backgroundColor: 'rgba(255, 206, 86, 0.2)',
+                            fill: false,
+                            borderDash: [5, 5],
+                            hidden: true
+                        },
+                        {
+                            label: 'Summer Min (°C)',
+                            data: summerMin,
+                            borderColor: 'rgba(255, 206, 86, 1)',
+                            backgroundColor: 'rgba(255, 206, 86, 0.2)',
+                            fill: false,
+                            borderDash: [5, 5],
+                            hidden: true
+                        },
+                        {
+                            label: 'Autumn Max (°C)',
+                            data: autumnMax,
+                            borderColor: 'rgba(75, 0, 130, 1)',
+                            backgroundColor: 'rgba(75, 0, 130, 0.2)',
+                            fill: false,
+                            borderDash: [5, 5],
+                            hidden: true
+                        },
+                        {
+                            label: 'Autumn Min (°C)',
+                            data: autumnMin,
+                            borderColor: 'rgba(75, 0, 130, 1)',
+                            backgroundColor: 'rgba(75, 0, 130, 0.2)',
+                            fill: false,
+                            borderDash: [5, 5],
+                            hidden: true
                         }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: `Wetter Daten von: ${station.station_id}`
+                        },
+                        legend: {
+                            position: 'left', // Legende links anzeigen
+                            labels: {
+                                // Überschreibe die Standard-Legenden-Erzeugung, um einen zusätzlichen "Toggle All"-Eintrag hinzuzufügen.
+                                generateLabels: function(chart) {
+                                    // Nutze die Standardfunktion (abhängig von deiner Chart.js Version, hier z.B. aus Chart.defaults)
+                                    const defaultLabels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+                                    // Füge einen extra Eintrag hinzu – datasetIndex -1 signalisiert unseren Toggle-All-Eintrag.
+                                    defaultLabels.push({
+                                        text: 'Toggle All',
+                                        fillStyle: '#000000',
+                                        hidden: false,
+                                        datasetIndex: -1
+                                    });
+                                    return defaultLabels;
+                                }
+                            },
+                            // onClick-Handler für Legenden-Elemente
+                            onClick: function(e, legendItem, legend) {
+                                const index = legendItem.datasetIndex;
+                                const chart = legend.chart;
+                                if (index === -1) {
+                                    // Toggle All: Falls mindestens ein Datensatz sichtbar ist, dann alle ausblenden,
+                                    // ansonsten alle einblenden.
+                                    const anyVisible = chart.data.datasets.some((_, i) => !chart.getDatasetMeta(i).hidden);
+                                    chart.data.datasets.forEach((_, i) => {
+                                        chart.getDatasetMeta(i).hidden = anyVisible; // wenn visible -> hidden = true, sonst false
+                                    });
+                                    chart.update();
+                                } else {
+                                    // Einzelnes Legendenelement toggeln:
+                                    const meta = chart.getDatasetMeta(index);
+                                    meta.hidden = !meta.hidden;
+                                    chart.update();
+                                }
+                            }
+                        },
+                        tooltip: { mode: 'index', intersect: false }
+                    },
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        x: {
+                            type: 'category', // Kategorien-Achse
+                            title: { display: true, text: 'Year' }
+                        },
+                        y: { title: { display: true, text: 'Temperature (°C)' } }
                     }
-                })
+                }
+            });
+
+            // Erstelle ein Array für die saisonalen Daten, das wir an Tabulator übergeben:
+            const tableData = Object.keys(seasonalSummary).sort().map(year => {
+                const seasonObj = seasonalSummary[year];
+                const fullYearObj = yearlySummary[year]; // assuming yearlySummary exists and has matching years
+                return {
+                    year: year,
+                    winter: seasonObj.Winter
+                              ? `${seasonObj.Winter["Min_Temperature (°C)"] ?? "N/A"} / ${seasonObj.Winter["Max_Temperature (°C)"] ?? "N/A"}`
+                              : "N/A",
+                    spring: seasonObj.Spring
+                              ? `${seasonObj.Spring["Min_Temperature (°C)"] ?? "N/A"} / ${seasonObj.Spring["Max_Temperature (°C)"] ?? "N/A"}`
+                              : "N/A",
+                    summer: seasonObj.Summer
+                              ? `${seasonObj.Summer["Min_Temperature (°C)"] ?? "N/A"} / ${seasonObj.Summer["Max_Temperature (°C)"] ?? "N/A"}`
+                              : "N/A",
+                    autumn: seasonObj.Autumn
+                              ? `${seasonObj.Autumn["Min_Temperature (°C)"] ?? "N/A"} / ${seasonObj.Autumn["Max_Temperature (°C)"] ?? "N/A"}`
+                              : "N/A",
+                    fullYear: fullYearObj
+                              ? `${fullYearObj["Min_Temperature (°C)"] ?? "N/A"} / ${fullYearObj["Max_Temperature (°C)"] ?? "N/A"} / ${fullYearObj["Year_Avg_Temperature (°C)"] ?? "N/A"}`
+                              : "N/A",
+                };
+            });
+
+            // Initialisiere oder aktualisiere die Tabulator-Tabelle
+            // (Wir verwenden hier eine globale Variable tabulatorTable)
+            if (window.tabulatorTable) {
+                window.tabulatorTable.replaceData(tableData);
+            } else {
+                window.tabulatorTable = new Tabulator("#table", {
+                    data: tableData,
+                    layout: "fitColumns",
+                    height: "300px",
+                    columns: [
+                        { title: "Year", field: "year" },
+                        { title: "Winter (Min / Max)", field: "winter" },
+                        { title: "Spring (Min / Max)", field: "spring" },
+                        { title: "Summer (Min / Max)", field: "summer" },
+                        { title: "Autumn (Min / Max)", field: "autumn" },
+                        { title: "Full Year (Min / Max /Avg.)", field: "fullYear" },
+                    ]
+                });
+            }
+
         } catch (error) {
             console.error("Error fetching or displaying weather data:", error);
             document.getElementById('temp-graph').innerText = "Failed to load weather data.";
         }
     });
-
     markers.push(stationMarker);
 }
-function setupEventSource({ lat, lon, max_dist_km, max_stations }) {
-    const url = `${EVENT_SOURCE_URL}?lat=${lat}&lon=${lon}&max_dist_km=${max_dist_km}&max_stations=${max_stations}`;
+function setupEventSource({ lat, lon, max_dist_km, max_stations, firstyear, lastyear }) {
+    const url = `${EVENT_SOURCE_URL}?lat=${lat}&lon=${lon}&max_dist_km=${max_dist_km}&max_stations=${max_stations}&firstyear=${firstyear}&lastyear=${lastyear}`;
     closeEventSource();
     eventSource = new EventSource(url);
     eventSource.onerror = () => {
@@ -217,10 +443,9 @@ async function fetchStations() {
 
     clearMarkers();
     initializeMap(inputValues.lat, inputValues.lon);
-    addHomeMarker(inputValues.lat, inputValues.lon);
+    addHomeMarker(inputValues.lat, inputValues.lon, inputValues.max_dist_km);
     setupEventSource(inputValues);
 }
-
 async function geocodeAddress(address) {
     const geocoder = new google.maps.Geocoder(); // Create Geocoder instance
     return new Promise((resolve, reject) => {
@@ -238,65 +463,75 @@ async function geocodeAddress(address) {
 </script>
 {% endblock %}
 {% block content %}
-<div class="container-fluid p-1 bg-dark" style="height: 100vh">
-    <div class="row gx-3 h-100" style="margin-left: unset; margin-right: unset;">
+<div class="container-fluid p-1" style="height: 100vh">
+    <div class="row gx-2" style="margin-left: unset; margin-right: unset;">
         <!-- Sidebar on the left -->
-        <div class="col-3 shadow rounded bg-light p-4" style="overflow-y: auto;">
-            <h1>Station Finder</h1>
-            <form class="row mt-4 g-3 p-4" onsubmit="event.preventDefault(); fetchStations();">
-                <div class="col-md-12">
-                    <label for="address" class="form-label">Address:</label>
-                    <input id="address" type="text" class="form-control" placeholder="Enter address">
-                </div>
-                <div class="col-md-6">
-                    <label for="lat" class="form-label">Latitude:</label>
-                    <input id="lat" type="text" class="form-control" placeholder="Latitude" value="48.060711110885094">
-                </div>
-                <div class="col-md-6">
-                    <label for="lon" class="form-label">Longitude:</label>
-                    <input id="lon" type="text" class="form-control" placeholder="Longitude" value="8.533784762385885">
-                </div>
-                <div class="col-md-6">
-                    <label for="max_dist_km" class="form-label">Max Distance (km):</label>
-                    <input id="max_dist_km" type="text" class="form-control" placeholder="Max Distance (km)" value="50">
-                </div>
-                <div class="col-md-6">
-                    <label for="max_stations" class="form-label">Max Stations:</label>
-                    <input id="max_stations" type="text" class="form-control" placeholder="Max Stations" value="50">
-                </div>
-                <div class="col-12">
-                    <button type="submit" class="btn border btn-light w-100">
-                        Find Stations
-                    </button>
-                </div>
-            </form>
-        </div>
+        <div class="col-3 d-flex flex-column sticky-top" style="height: 100vh">
+            <div class="col shadow rounded bg-light p-4 flex-grow-1">
+                <h1>Wetter Dashboard</h1>
+                <form class="row mt-4 g-3" onsubmit="event.preventDefault(); fetchStations();">
+                    <div class="col-md-12">
+                        <label for="address" class="form-label">Address:</label>
+                        <input id="address" type="text" class="form-control" placeholder="Enter address">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="lat" class="form-label">Latitude:</label>
+                        <input id="lat" type="text" class="form-control" placeholder="Latitude" value="48.060711110885094">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="lon" class="form-label">Longitude:</label>
+                        <input id="lon" type="text" class="form-control" placeholder="Longitude" value="8.533784762385885">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="max_dist_km" class="form-label">Max Distance (km):</label>
+                        <input id="max_dist_km" type="text" class="form-control" placeholder="Max Distance (km)" value="50">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="max_stations" class="form-label">Max Stations:</label>
+                        <input id="max_stations" type="text" class="form-control" placeholder="Max Stations" value="50">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="firstyear" class="form-label">First Year:</label>
+                        <input id="firstyear" type="text" class="form-control" placeholder="First Year:" value="2010">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="lastyear" class="form-label">Last Year:</label>
+                        <input id="lastyear" type="text" class="form-control" placeholder="Last Year:" value="2015">
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn border btn-light w-100">
+                            Find Stations
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <!-- Max Temperature -->
+            <div class="mt-2 flex-grow-1">
+                <div id="max-temp" class="shadow rounded bg-light p-4 h-100"></div>
+            </div>
 
+            <!-- Additional Max Temperature -->
+            <div class="mt-2 flex-grow-1">
+                <div id="min-temp" class="shadow rounded bg-light p-4 h-100"></div>
+            </div>
+        </div>
         <!-- Main content on the right -->
         <div class="col-9 h-100 d-flex flex-column">
-            <div class="flex-fill row gx-2">
-                <!-- Temperature Graph -->
-                <div class="col-md-6">
-                    <div id="temp-graph" class="shadow rounded bg-light p-4 h-100"></div>
-                </div>
-
-                <!-- Max Temperature -->
-                <div class="col-md-3">
-                    <div id="max-temp" class="shadow rounded bg-light p-4 h-100"></div>
-                </div>
-
-                <!-- Additional Max Temperature -->
-                <div class="col-md-3">
-                    <div id="min-temp" class="shadow rounded bg-light p-4 h-100"></div>
-                </div>
-            </div>
-
             <!-- Map Section -->
-            <div class="row mt-2">
+            <div class="row">
                 <div class="col-12">
-                    <div id="map" class="shadow rounded" style="height: 75vh;"></div>
+                    <div id="map" class="shadow rounded"></div>
                 </div>
             </div>
+            <!-- Graph Section -->
+            <div class="flex-fill row gx-2 mt-2">
+                <!-- Temperature Graph -->
+                <div class="col-12">
+                    <div id="temp-graph" class="shadow rounded bg-light p-4"></div>
+                </div>
+            </div>
+            <!-- Table Section -->
+            <div id="table" class="col-12 shadow rounded bg-light p-4 mt-2"></div>
         </div>
     </div>
 </div>

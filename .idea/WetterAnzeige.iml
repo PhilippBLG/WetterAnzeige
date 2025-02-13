@@ -6,5 +6,7 @@
     </content>
     <orderEntry type="jdk" jdkName="Python 3.12 (WetterAnzeige)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="library" name="chart.js" level="application" />
+    <orderEntry type="library" name="tabulator-tables" level="application" />
   </component>
 </module>
