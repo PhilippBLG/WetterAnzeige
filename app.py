@@ -120,10 +120,11 @@ def find_stations_within_radius(inventory_url, lat, lon, max_dist_km, max_statio
 
 
 @lru_cache(maxsize=100)  # Cache up to 100 different station results
-def process_station_data(station_id: str, firstyear: int, lastyear: int) -> tuple:
+def process_station_data(station_id: str, firstyear: int, lastyear: int, station_lat: float) -> tuple:
     """Process and cache weather data for a specific station,
     including overall yearly statistics and seasonal (Winter, Spring, Summer, Autumn) max/min temperatures.
-    Only returns data for years between firstyear and lastyear (inclusive)."""
+    Only returns data for years between firstyear and lastyear (inclusive).
+    The season names are switched if station_lat is negative (Southern Hemisphere)."""
     app.logger.info(f"Processing weather data for station {station_id} - cache miss")
 
     station_data_url = f'https://www1.ncdc.noaa.gov/pub/data/ghcn/daily/by_station/{station_id}.csv.gz'
@@ -150,19 +151,18 @@ def process_station_data(station_id: str, firstyear: int, lastyear: int) -> tupl
             low_memory=False
         )
 
-    # Umwandeln der DATE-Spalte in ein datetime-Objekt
+    # Convert DATE to datetime and extract YEAR as string
     data['DATE'] = pd.to_datetime(data['DATE'], format='%Y%m%d', errors='coerce')
-    # Erstelle eine YEAR-Spalte (als String für die Jahresübersicht)
     data['YEAR'] = data['DATE'].dt.year.astype(str)
 
-    # Filtere nur relevante Elemente (TMAX, TMIN, PRCP)
+    # Filter only relevant elements
     filtered_data = data[data['ELEMENT'].isin(['TMAX', 'TMIN', 'PRCP'])].copy()
     filtered_data['VALUE'] = pd.to_numeric(filtered_data['VALUE'], errors='coerce')
-    # Für Temperaturwerte (TMAX, TMIN) teilen wir durch 10, um °C zu erhalten
+    # Convert TMAX and TMIN from tenths of °C to °C
     filtered_data.loc[filtered_data['ELEMENT'].isin(['TMAX', 'TMIN']), 'VALUE'] = \
         filtered_data.loc[filtered_data['ELEMENT'].isin(['TMAX', 'TMIN']), 'VALUE'] / 10
 
-    # --- Jahresstatistik (wie bisher) ---
+    # --- Yearly Statistics ---
     temp_data = filtered_data[filtered_data['ELEMENT'].isin(['TMAX', 'TMIN'])]
     temp_summary = temp_data.groupby(['YEAR', 'ELEMENT'])['VALUE'].agg(['max', 'min', 'mean']).unstack()
     max_temps = temp_summary['max']['TMAX'] if 'TMAX' in temp_summary['max'] else None
@@ -179,23 +179,35 @@ def process_station_data(station_id: str, firstyear: int, lastyear: int) -> tupl
         'Year_Avg_Rain (mm)': avg_rain_per_year
     }).fillna(0)
 
-    # --- Saisonale Statistik ---
+    # --- Seasonal Statistics ---
     season_data = temp_data.copy()
     season_data['month'] = season_data['DATE'].dt.month
     season_data['year_int'] = season_data['DATE'].dt.year
 
     def get_season(month: int) -> str:
-        if month in [3, 4, 5]:
-            return 'Spring'
-        elif month in [6, 7, 8]:
-            return 'Summer'
-        elif month in [9, 10, 11]:
-            return 'Autumn'
+        # For Northern Hemisphere
+        if station_lat >= 0:
+            if month in [3, 4, 5]:
+                return 'Spring'
+            elif month in [6, 7, 8]:
+                return 'Summer'
+            elif month in [9, 10, 11]:
+                return 'Autumn'
+            else:
+                return 'Winter'
         else:
-            return 'Winter'
+            # Southern Hemisphere: switch the seasons
+            if month in [3, 4, 5]:
+                return 'Autumn'
+            elif month in [6, 7, 8]:
+                return 'Winter'
+            elif month in [9, 10, 11]:
+                return 'Spring'
+            else:
+                return 'Summer'
 
     season_data['season'] = season_data['month'].apply(get_season)
-    # Ordne Dezember dem folgenden Jahr zu, um den Winter korrekt zu gruppieren
+    # For grouping Winter correctly, shift December to the next year (this applies for both hemispheres)
     season_data['season_year'] = season_data['year_int']
     season_data.loc[season_data['month'] == 12, 'season_year'] += 1
 
@@ -217,7 +229,7 @@ def process_station_data(station_id: str, firstyear: int, lastyear: int) -> tupl
                 'Min_Temperature (°C)': min_val if min_val is not None else 0
             }
 
-    # Wende die Filterung an: Nur Ergebnisse für Jahre zwischen firstyear und lastyear behalten.
+    # Filter: Only include years between firstyear and lastyear
     yearly_filtered = {year: data for year, data in yearly_result.to_dict(orient='index').items()
                        if firstyear <= int(year) <= lastyear}
     seasonal_filtered = {year: data for year, data in seasonal_summary.items()
@@ -229,26 +241,27 @@ def process_station_data(station_id: str, firstyear: int, lastyear: int) -> tupl
         'seasonal_summary': seasonal_filtered
     }
 
-    # Ersetze alle NaN-Werte (verwende hier die numpy-Version, siehe unten)
+    # Replace any NaN values (using numpy version)
     final_result = replace_nan_with_none(final_result)
 
     return jsonify(final_result), 200
 
+
 @app.route('/api/station_data', methods=['GET'])
 def get_station_weather_data():
-    """Route handler for getting station weather data."""
     station_id = request.args.get('station_id')
     if not station_id:
         return {"error": "Missing station_id"}, 400
     try:
-        # Lese firstyear und lastyear aus den Query-Parametern (mit Default-Werten)
         firstyear = int(request.args.get('firstyear', 1900))
         lastyear = int(request.args.get('lastyear', 2100))
-        app.logger.info(f"Fetching data for station {station_id} for years between {firstyear} and {lastyear}")
-        return process_station_data(station_id, firstyear, lastyear)
+        station_lat = float(request.args.get('station_lat', 0))  # default 0 (Equator)
+        app.logger.info(f"Fetching data for station {station_id} for years between {firstyear} and {lastyear}, lat: {station_lat}")
+        return process_station_data(station_id, firstyear, lastyear, station_lat)
     except Exception as e:
         app.logger.error(f"Error processing station data: {e}")
         return {"error": str(e)}, 500
+
 
 
 @app.route('/api/find_stations', methods=['GET'])
