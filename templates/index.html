@@ -83,24 +83,73 @@ function addHomeMarker(lat, lon, dist) {
     markers.push(homeMarker);
 }
 function addStationMarker(station) {
-    const stationIcon = document.createElement("img");
-    stationIcon.src = STATION_ICON_URL;
-    stationIcon.width = 44;
-    stationIcon.height = 44;
+    // Create a container for the marker content
+    function createMarkerContent(station) {
+      // Create the main container using Bootstrap classes
+      const container = document.createElement("div");
+      container.className = "d-flex flex-column align-items-center";
+      container.style.position = "relative"; // needed for absolute positioning of the info box
+
+      // Create the infoBox with Bootstrap styling and inline styles
+      const infoBox = document.createElement("div");
+      infoBox.innerText = `Lat: ${station.latitude}\nLng: ${station.longitude}\nCity: ${station.city}`;
+      // Use Bootstrap utility classes for background, text color, padding, and border
+      infoBox.className = "bg-light text-dark p-1 rounded border";
+      // Initially hidden:
+      infoBox.style.display = "none";
+      // Position the infoBox above the marker:
+      infoBox.style.position = "absolute";
+      infoBox.style.textAlign = "center";
+      infoBox.style.width = `90px`;
+      infoBox.style.bottom = "100%";
+      infoBox.style.left = "50%";
+      infoBox.style.transform = "translateX(-50%)";
+      infoBox.style.whiteSpace = "pre-line"; // allow line breaks
+      container.appendChild(infoBox);
+
+      // Create the station icon element
+      const stationIcon = document.createElement("img");
+      stationIcon.src = STATION_ICON_URL;
+      stationIcon.width = 44;
+      stationIcon.height = 44;
+      stationIcon.className = "img-fluid"; // responsive image using Bootstrap
+      container.appendChild(stationIcon);
+
+      // Show the infoBox on hover
+      container.addEventListener("mouseenter", () => {
+        infoBox.style.display = "block";
+      });
+      container.addEventListener("mouseleave", () => {
+        infoBox.style.display = "none";
+      });
+
+      // Optionally, toggle the infoBox on click
+      container.addEventListener("click", () => {
+        infoBox.style.display = (infoBox.style.display === "none") ? "block" : "none";
+      });
+
+      return container;
+    }
+
+    // Usage when creating the marker:
+    const content = createMarkerContent(station);
     const stationMarker = new google.maps.marker.AdvancedMarkerElement({
-        map: map,
-        position: { lat: station.latitude, lng: station.longitude },
-        gmpClickable: true,
-        content: stationIcon,
-        title: `Station ID: ${station.station_id}`,
-        collisionBehavior: "OPTIONAL_AND_HIDES_LOWER_PRIORITY",
+      map: map,
+      position: { lat: station.latitude, lng: station.longitude },
+      gmpClickable: true,
+      content: content,
+      title: `Station ID: ${station.station_id}`,
+      collisionBehavior: "OPTIONAL_AND_HIDES_LOWER_PRIORITY",
     });
+
+
+
 
         stationMarker.addListener("click", async () => {
         document.getElementById('temp-graph').innerHTML = `<h5>Loading weather data for station: ${station.station_id}...</h5>`;
         try {
             const inputValues = getInputValues();
-            const response = await fetch(`/api/station_data?station_id=${station.station_id}&firstyear=${inputValues.firstyear}&lastyear=${inputValues.lastyear}`);
+            const response = await fetch(`/api/station_data?station_id=${station.station_id}&firstyear=${inputValues.firstyear}&lastyear=${inputValues.lastyear}&station_lat=${inputValues.lat}`);
             if (!response.ok) {
                 throw new Error("Failed to fetch weather data");
             }
@@ -369,7 +418,7 @@ function addStationMarker(station) {
                               ? `${seasonObj.Autumn["Min_Temperature (°C)"] ?? "N/A"} / ${seasonObj.Autumn["Max_Temperature (°C)"] ?? "N/A"}`
                               : "N/A",
                     fullYear: fullYearObj
-                              ? `${fullYearObj["Min_Temperature (°C)"] ?? "N/A"} / ${fullYearObj["Max_Temperature (°C)"] ?? "N/A"} / ${fullYearObj["Year_Avg_Temperature (°C)"] ?? "N/A"}`
+                              ? `${fullYearObj["Min_Temperature (°C)"] ?? "N/A"} / ${fullYearObj["Max_Temperature (°C)"] ?? "N/A"} / ${fullYearObj["Year_Avg_Temperature (°C)"] != null ? Number(fullYearObj["Year_Avg_Temperature (°C)"]).toFixed(1) : "N/A"}`
                               : "N/A",
                 };
             });
@@ -384,12 +433,12 @@ function addStationMarker(station) {
                     layout: "fitColumns",
                     height: "300px",
                     columns: [
-                        { title: "Year", field: "year" },
+                        { title: "Year", field: "year", width:90  },
                         { title: "Winter (Min / Max)", field: "winter" },
                         { title: "Spring (Min / Max)", field: "spring" },
                         { title: "Summer (Min / Max)", field: "summer" },
                         { title: "Autumn (Min / Max)", field: "autumn" },
-                        { title: "Full Year (Min / Max /Avg.)", field: "fullYear" },
+                        { title: "Full Year (Min / Max /Avg.)", field: "fullYear", widthGrow:1.2},
                     ]
                 });
             }
@@ -424,21 +473,22 @@ function setupEventSource({ lat, lon, max_dist_km, max_stations, firstyear, last
     };
 }
 async function fetchStations() {
-    const inputValues = getInputValues();
     const address = document.getElementById('address').value.trim();
-    let coordinates = null;
     if (address) {
-        coordinates = await geocodeAddress(address);
-        if (!coordinates) {
-            alert("Unable to find location for the provided address or geocoding failed.");
-            return;
-        }
-        inputValues.lat = coordinates.lat;
-        inputValues.lon = coordinates.lon;
+    const coords = await geocodeAddress(address);
+    if (coords) {
+      // Update the lat and lon input fields with the geocoded values
+      document.getElementById('lat').value = coords.lat;
+      document.getElementById('lon').value = coords.lon;
+    } else {
+      alert("Unable to find location for the provided address or geocoding failed.");
+      return;
     }
+    }
+    const inputValues = getInputValues();
     if (!validateInputs(inputValues)) {
-        alert("Please enter valid inputs.");
-        return;
+    alert("Please enter valid inputs.");
+    return;
     }
 
     clearMarkers();
