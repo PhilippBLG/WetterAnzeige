@@ -94,7 +94,7 @@ function addStationMarker(station) {
       const infoBox = document.createElement("div");
       infoBox.innerText = `Lat: ${station.latitude}\nLng: ${station.longitude}\nCity: ${station.city}`;
       // Use Bootstrap utility classes for background, text color, padding, and border
-      infoBox.className = "bg-light text-dark p-1 rounded border";
+      infoBox.className = "z-3 bg-light text-dark p-1 rounded border";
       // Initially hidden:
       infoBox.style.display = "none";
       // Position the infoBox above the marker:
@@ -104,7 +104,7 @@ function addStationMarker(station) {
       infoBox.style.bottom = "100%";
       infoBox.style.left = "50%";
       infoBox.style.transform = "translateX(-50%)";
-      infoBox.style.whiteSpace = "pre-line"; // allow line breaks
+      infoBox.style.lineBreak = "normal"; // allow line breaks
       container.appendChild(infoBox);
 
       // Create the station icon element
@@ -112,7 +112,7 @@ function addStationMarker(station) {
       stationIcon.src = STATION_ICON_URL;
       stationIcon.width = 44;
       stationIcon.height = 44;
-      stationIcon.className = "img-fluid"; // responsive image using Bootstrap
+      stationIcon.className = "z-0 img-fluid"; // responsive image using Bootstrap
       container.appendChild(stationIcon);
 
       // Show the infoBox on hover
@@ -238,6 +238,19 @@ function addStationMarker(station) {
                 ? seasonalSummary[year]["Autumn"]["Min_Temperature (°C)"]
                 : null
             );
+            // Helper function to toggle a Tabulator column for a given season
+            function toggleSeasonColumn(season) {
+                if (window.tabulatorTable) {
+                    const col = window.tabulatorTable.getColumn(season);
+                    if (col) {
+                        if (col.isVisible()) {
+                            col.hide();
+                        } else {
+                            col.show();
+                        }
+                    }
+                }
+            }
             const ctx = document.getElementById('weatherChart').getContext('2d');
             const weatherChart = new Chart(ctx, {
                 type: 'line',
@@ -271,38 +284,34 @@ function addStationMarker(station) {
                         {
                             label: 'Winter Max (°C)',
                             data: winterMax,
-                            borderColor: 'rgba(255, 159, 64, 1)',
-                            backgroundColor: 'rgba(255, 159, 64, 0.2)',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
                             fill: false,
-                            borderDash: [5, 5],
-                            hidden: true
+                            borderDash: [5, 5]
                         },
                         {
                             label: 'Winter Min (°C)',
                             data: winterMin,
-                            borderColor: 'rgba(255, 159, 64, 1)',
-                            backgroundColor: 'rgba(255, 159, 64, 0.2)',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
                             fill: false,
-                            borderDash: [5, 5],
-                            hidden: true
+                            borderDash: [5, 5]
                         },
                         {
                             label: 'Spring Max (°C)',
                             data: springMax,
-                            borderColor: 'rgba(153, 102, 255, 1)',
-                            backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
                             fill: false,
-                            borderDash: [5, 5],
-                            hidden: true
+                            borderDash: [5, 5]
                         },
                         {
                             label: 'Spring Min (°C)',
                             data: springMin,
-                            borderColor: 'rgba(153, 102, 255, 1)',
-                            backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
                             fill: false,
-                            borderDash: [5, 5],
-                            hidden: true
+                            borderDash: [5, 5]
                         },
                         {
                             label: 'Summer Max (°C)',
@@ -310,8 +319,7 @@ function addStationMarker(station) {
                             borderColor: 'rgba(255, 206, 86, 1)',
                             backgroundColor: 'rgba(255, 206, 86, 0.2)',
                             fill: false,
-                            borderDash: [5, 5],
-                            hidden: true
+                            borderDash: [5, 5]
                         },
                         {
                             label: 'Summer Min (°C)',
@@ -319,26 +327,23 @@ function addStationMarker(station) {
                             borderColor: 'rgba(255, 206, 86, 1)',
                             backgroundColor: 'rgba(255, 206, 86, 0.2)',
                             fill: false,
-                            borderDash: [5, 5],
-                            hidden: true
+                            borderDash: [5, 5]
                         },
                         {
                             label: 'Autumn Max (°C)',
                             data: autumnMax,
-                            borderColor: 'rgba(75, 0, 130, 1)',
-                            backgroundColor: 'rgba(75, 0, 130, 0.2)',
+                            borderColor: 'rgba(255, 159, 64, 1)',
+                            backgroundColor: 'rgba(255, 159, 64, 0.2)',
                             fill: false,
-                            borderDash: [5, 5],
-                            hidden: true
+                            borderDash: [5, 5]
                         },
                         {
                             label: 'Autumn Min (°C)',
                             data: autumnMin,
-                            borderColor: 'rgba(75, 0, 130, 1)',
-                            backgroundColor: 'rgba(75, 0, 130, 0.2)',
+                            borderColor: 'rgba(255, 159, 64, 1)',
+                            backgroundColor: 'rgba(255, 159, 64, 0.2)',
                             fill: false,
-                            borderDash: [5, 5],
-                            hidden: true
+                            borderDash: [5, 5]
                         }
                     ]
                 },
@@ -350,13 +355,31 @@ function addStationMarker(station) {
                             text: `Wetter Daten von: ${station.station_id}`
                         },
                         legend: {
-                            position: 'left', // Legende links anzeigen
+                            position: 'left', // Place legend on the left
                             labels: {
-                                // Überschreibe die Standard-Legenden-Erzeugung, um einen zusätzlichen "Toggle All"-Eintrag hinzuzufügen.
                                 generateLabels: function(chart) {
-                                    // Nutze die Standardfunktion (abhängig von deiner Chart.js Version, hier z.B. aus Chart.defaults)
-                                    const defaultLabels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
-                                    // Füge einen extra Eintrag hinzu – datasetIndex -1 signalisiert unseren Toggle-All-Eintrag.
+                                    // Get default labels for full-year datasets only (indices 0-2)
+                                    let defaultLabels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+                                    // Filter out any default seasonal items (indices >= 3)
+                                    defaultLabels = defaultLabels.filter(item => item.datasetIndex < 3);
+
+                                    // Create custom combined legend items for each season
+                                    const seasonalMapping = [
+                                        { label: 'Winter', datasetIndices: [3, 4], fillStyle: 'rgba(54, 162, 235, 1)' },
+                                        { label: 'Spring', datasetIndices: [5, 6], fillStyle: 'rgba(75, 192, 192, 1)' },
+                                        { label: 'Summer', datasetIndices: [7, 8], fillStyle: 'rgba(255, 206, 86, 1)' },
+                                        { label: 'Autumn', datasetIndices: [9, 10], fillStyle: 'rgba(255, 159, 64, 1)' },
+                                    ];
+                                    seasonalMapping.forEach(mapping => {
+                                        defaultLabels.push({
+                                            text: mapping.label,
+                                            fillStyle: mapping.fillStyle,
+                                            hidden: mapping.datasetIndices.every(i => chart.getDatasetMeta(i).hidden),
+                                            datasetIndices: mapping.datasetIndices // custom property
+                                        });
+                                    });
+
+                                    // Add a "Toggle All" legend item with datasetIndex -1
                                     defaultLabels.push({
                                         text: 'Toggle All',
                                         fillStyle: '#000000',
@@ -368,19 +391,37 @@ function addStationMarker(station) {
                             },
                             // onClick-Handler für Legenden-Elemente
                             onClick: function(e, legendItem, legend) {
-                                const index = legendItem.datasetIndex;
                                 const chart = legend.chart;
-                                if (index === -1) {
-                                    // Toggle All: Falls mindestens ein Datensatz sichtbar ist, dann alle ausblenden,
-                                    // ansonsten alle einblenden.
+                                if (legendItem.datasetIndex === -1) {
+                                    // "Toggle All": if any dataset is visible, hide all; otherwise, show all.
                                     const anyVisible = chart.data.datasets.some((_, i) => !chart.getDatasetMeta(i).hidden);
+                                    const desiredVisibility = !anyVisible; // true means show all, false means hide all.
                                     chart.data.datasets.forEach((_, i) => {
-                                        chart.getDatasetMeta(i).hidden = anyVisible; // wenn visible -> hidden = true, sonst false
+                                        chart.getDatasetMeta(i).hidden = !desiredVisibility;
                                     });
                                     chart.update();
-                                } else {
-                                    // Einzelnes Legendenelement toggeln:
-                                    const meta = chart.getDatasetMeta(index);
+                                    // Also update all seasonal columns in Tabulator to match desiredVisibility.
+                                    if (window.tabulatorTable) {
+                                        ["winter", "spring", "summer", "autumn"].forEach(season => {
+                                            const col = window.tabulatorTable.getColumn(season);
+                                            if (col) {
+                                                desiredVisibility ? col.show() : col.hide();
+                                            }
+                                        });
+                                    }
+                                } else if (legendItem.hasOwnProperty('datasetIndices')) {
+                                    // This is a combined seasonal legend item.
+                                    const indices = legendItem.datasetIndices;
+                                    const allHidden = indices.every(i => chart.getDatasetMeta(i).hidden);
+                                    indices.forEach(i => {
+                                        chart.getDatasetMeta(i).hidden = !allHidden;
+                                    });
+                                    chart.update();
+                                    // Sync the Tabulator column for that season (assumes field name is season in lowercase)
+                                    toggleSeasonColumn(legendItem.text.toLowerCase());
+                                } else if (legendItem.datasetIndex < 3) {
+                                    // Full-year datasets: default toggle behavior.
+                                    const meta = chart.getDatasetMeta(legendItem.datasetIndex);
                                     meta.hidden = !meta.hidden;
                                     chart.update();
                                 }

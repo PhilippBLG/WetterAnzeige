@@ -79,6 +79,42 @@ def read_ghcnd_stations(url):
     return df_unique
 
 
+@lru_cache(maxsize=1)
+def read_station_cities(csv_url_city):
+    """
+    Reads a fixed-width file containing station metadata and returns a dictionary
+    mapping Station ID to its NAME.
+
+    Expected format:
+        ID            1-11   Character
+        LATITUDE     13-20   Real
+        LONGITUDE    22-30   Real
+        ELEVATION    32-37   Real
+        STATE        39-40   Character
+        NAME         42-71   Character
+        GSN FLAG     73-75   Character
+        HCN/CRN FLAG 77-79   Character
+        WMO ID       81-85   Character
+    """
+    import pandas as pd
+    colspecs = [
+        (0, 11),  # ID: columns 1-11 (0-indexed: 0 to 11)
+        (12, 20),  # LATITUDE: columns 13-20
+        (21, 30),  # LONGITUDE: columns 22-30
+        (31, 37),  # ELEVATION: columns 32-37
+        (38, 40),  # STATE: columns 39-40
+        (41, 71),  # NAME: columns 42-71
+        (72, 75),  # GSN FLAG: columns 73-75
+        (76, 79),  # HCN/CRN FLAG: columns 77-79
+        (80, 85)  # WMO ID: columns 81-85
+    ]
+    names = ["ID", "LATITUDE", "LONGITUDE", "ELEVATION", "STATE", "NAME", "GSN_FLAG", "HCN_CRN_FLAG", "WMO_ID"]
+    df = pd.read_fwf(csv_url_city, colspecs=colspecs, header=None, names=names)
+    # Create mapping from ID to NAME, trimming any extra whitespace
+    mapping = dict(zip(df["ID"].str.strip(), df["NAME"].str.strip()))
+    return mapping
+
+
 def find_stations_within_radius(inventory_url, lat, lon, max_dist_km, max_stations, firstyear, lastyear):
     """
     Sucht die nächstgelegenen Stationen innerhalb eines bestimmten Radius,
@@ -268,14 +304,15 @@ def get_station_weather_data():
 def find_stations():
     import json
 
-    # Verwende die neue Inventory-Datei
+    # Use the GHCN inventory file for stations
     inventory_url = "https://www1.ncdc.noaa.gov/pub/data/ghcn/daily/ghcnd-inventory.txt"
+    # Use your fixed-width city file (mapping ID to NAME)
+    csv_url_city = "https://www1.ncdc.noaa.gov/pub/data/ghcn/daily/ghcnd-stations.txt"  # Replace with your actual URL
+
     lat = float(request.args.get("lat", 48.060711110885094))
     lon = float(request.args.get("lon", 8.533784762385885))
     max_dist_km = float(request.args.get("max_dist_km", 50.0))
     max_stations = int(request.args.get("max_stations", 5))
-
-    # Lese den gewünschten Zeitraum aus den Query-Parametern (Default: 1900 bis 2025)
     firstyear = int(request.args.get("firstyear", 2010))
     lastyear = int(request.args.get("lastyear", 2015))
 
@@ -284,16 +321,24 @@ def find_stations():
             inventory_url=inventory_url,
             lat=lat,
             lon=lon,
-    max_dist_km=max_dist_km,
+            max_dist_km=max_dist_km,
             max_stations=max_stations,
             firstyear=firstyear,
             lastyear=lastyear
         )
 
+        # Build the mapping from Station ID to Station Name (city)
+        station_names = read_station_cities(csv_url_city)
+
+        # For each station, add the city info based on its ID
+        for station in stations:
+            station_id = station.get("station_id")
+            station["city"] = station_names.get(station_id, "Unknown")
+
         def generate():
             for station in stations:
                 yield f"data: {json.dumps(station)}\n\n"
-            time.sleep(1)  # Verbindung kurz am Leben halten
+            time.sleep(1)
             yield "data: finished\n\n"
 
     except Exception as e:
@@ -318,7 +363,9 @@ if __name__ == '__main__':
         try:
             app.logger.info("Preloading station data...")
             csv_url = "https://www1.ncdc.noaa.gov/pub/data/ghcn/daily/ghcnd-inventory.txt"
-            read_ghcnd_stations(csv_url)  # This will store the data in cache
+            csv_url_city = "https://www1.ncdc.noaa.gov/pub/data/ghcn/daily/ghcnd-stations.txt"
+            read_ghcnd_stations(csv_url) # This will store the data in cache
+            read_station_cities(csv_url_city) # This will store the data in cache
             app.logger.info("Station data preloaded successfully.")
         except Exception as e:
             app.logger.error(f"Error preloading station data: {e}")
