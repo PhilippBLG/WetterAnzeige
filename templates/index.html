@@ -472,7 +472,7 @@ function addStationMarker(station) {
                 window.tabulatorTable = new Tabulator("#table", {
                     data: tableData,
                     layout: "fitColumns",
-                    height: "300px",
+                    maxHeight: "100%",
                     columns: [
                         { title: "Year", field: "year", width:90  },
                         { title: "Winter (Min / Max)", field: "winter" },

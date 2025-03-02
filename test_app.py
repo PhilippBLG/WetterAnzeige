@@ -6,8 +6,6 @@ import numpy as np
 import pandas as pd
 from unittest.mock import patch, MagicMock
 
-# Import the app and functions from your module.
-# Adjust the import if your module is named differently.
 from app import (
     app,
     haversine,
