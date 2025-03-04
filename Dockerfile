@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 5. Port freigeben, auf dem Flask läuft
 EXPOSE 8090
+ENV PORT 8090
 
 # 6. Flask starten
 CMD ["python","-u","app.py"]
