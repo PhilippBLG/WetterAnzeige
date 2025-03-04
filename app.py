@@ -2,13 +2,15 @@ import time
 import json
 import gzip
 from functools import lru_cache
-
 import numpy as np
 import pandas as pd
 import requests
 from flask import Flask, request, render_template, Response, jsonify
+import logging
 
 app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
+app.logger.setLevel(logging.INFO)
 
 # Konstanten für Fixed-Width-Dateien
 GHCND_COLSPECS = [
@@ -63,13 +65,23 @@ def replace_nan_with_none(obj):
 @lru_cache(maxsize=1)
 def read_ghcnd_stations(url: str) -> pd.DataFrame:
     """
-    Liest und parst die GHCND Inventory-Datei von der angegebenen URL.
+    Reads and parses the GHCND Inventory file from the given URL,
+    and only keeps records with the ELEMENT 'TMIN' or 'TMAX'.
     """
     app.logger.info("Lade Inventory-Datei von URL (Cache miss)")
     df = pd.read_fwf(url, colspecs=GHCND_COLSPECS, header=None, names=GHCND_NAMES)
+
+    # Filter rows: keep only rows where ELEMENT is 'TMIN' or 'TMAX'
+    df = df[df['ELEMENT'].isin(['TMIN', 'TMAX'])]
+
+    # Convert columns to numeric types
     for col in ['LATITUDE', 'LONGITUDE', 'FIRSTYEAR', 'LASTYEAR']:
         df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    # Remove rows with missing essential values
     df = df.dropna(subset=['ID', 'LATITUDE', 'LONGITUDE'])
+
+    # Remove duplicate station entries (only one per station)
     df_unique = df.drop_duplicates(subset=['ID'])
     app.logger.info(f"Es wurden {len(df_unique)} eindeutige Stationen geladen")
     return df_unique
@@ -111,7 +123,7 @@ def find_stations_within_radius(inventory_url: str, lat: float, lon: float,
 
 def get_season(month: int, station_lat: float) -> str:
     """
-    Bestimmt die Jahreszeit basierend auf dem Monat und der geographischen Breite.
+    Bestimmt die Jahreszeit basierend auf dem Monat und der geografischen Breite.
     """
     if station_lat >= 0:
         if month in [3, 4, 5]:
@@ -155,7 +167,7 @@ def process_station_data(station_id: str, firstyear: int, lastyear: int, station
 
     data['DATE'] = pd.to_datetime(data['DATE'], format='%Y%m%d', errors='coerce')
     data['YEAR'] = data['DATE'].dt.year.astype(str)
-    filtered = data[data['ELEMENT'].isin(['TMAX', 'TMIN', 'PRCP'])].copy()
+    filtered = data[data['ELEMENT'].isin(['TMAX', 'TMIN'])].copy()
     filtered['VALUE'] = pd.to_numeric(filtered['VALUE'], errors='coerce')
     filtered.loc[filtered['ELEMENT'].isin(['TMAX', 'TMIN']), 'VALUE'] /= 10
 
@@ -165,14 +177,11 @@ def process_station_data(station_id: str, firstyear: int, lastyear: int, station
     max_temps = temp_summary['max'].get('TMAX')
     min_temps = temp_summary['min'].get('TMIN')
     overall_avg_temp = temp_data.groupby('YEAR')['VALUE'].mean()
-    rain_data = filtered[filtered['ELEMENT'] == 'PRCP']
-    avg_rain_per_year = rain_data.groupby('YEAR')['VALUE'].mean()
 
     yearly_result = pd.DataFrame({
         'Max_Temperature (°C)': max_temps,
         'Min_Temperature (°C)': min_temps,
-        'Year_Avg_Temperature (°C)': overall_avg_temp,
-        'Year_Avg_Rain (mm)': avg_rain_per_year
+        'Year_Avg_Temperature (°C)': overall_avg_temp
     }).fillna(0)
 
     # Seasonal Statistics

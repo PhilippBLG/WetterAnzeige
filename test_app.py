@@ -186,5 +186,83 @@ class TestFlaskRoutes(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertIn("Index Page", response.get_data(as_text=True))
 
+###############################################################################
+# Testing Integration
+###############################################################################
+class IntegrationTests(unittest.TestCase):
+    def setUp(self):
+        # Create a test client using the Flask application configured for testing.
+        self.client = app.test_client()
+        self.client.testing = True
+
+    def create_gzipped_csv(self, csv_data: str) -> io.BytesIO:
+        """
+        Helper function that creates a gzip-compressed in-memory CSV.
+        """
+        gzipped_csv = io.BytesIO()
+        with gzip.GzipFile(fileobj=gzipped_csv, mode='w') as gz:
+            gz.write(csv_data.encode('utf-8'))
+        gzipped_csv.seek(0)
+        return gzipped_csv
+
+    @patch('app.requests.get')
+    def test_api_station_data_integration(self, mock_get):
+        """
+        Integration test for the /api/station_data endpoint.
+
+        This test patches the requests.get call to simulate fetching a gzip-compressed CSV file,
+        then verifies that the endpoint returns JSON containing the expected keys.
+        """
+        csv_data = (
+            "TEST,20210101,TMAX,250,,,,\n"
+            "TEST,20210101,TMIN,50,,,,\n"
+            "TEST,20210102,TMAX,260,,,,\n"
+            "TEST,20210102,TMIN,60,,,,\n"
+        )
+        gzipped_csv = self.create_gzipped_csv(csv_data)
+
+        fake_response = MagicMock()
+        fake_response.raw = gzipped_csv
+        fake_response.raise_for_status = MagicMock()
+        mock_get.return_value = fake_response
+
+        response = self.client.get(
+            '/api/station_data?station_id=TEST&firstyear=2021&lastyear=2021&station_lat=45'
+        )
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.data.decode('utf-8'))
+        self.assertIn("yearly_summary", data)
+        self.assertIn("seasonal_summary", data)
+
+    @patch('app.requests.get')
+    def test_api_station_data_external_error(self, mock_get):
+        """
+        Simulate an external error (e.g. network failure) during the call to requests.get.
+        The endpoint should catch the exception and return an error with status code 500.
+        """
+        mock_get.side_effect = Exception("Simulated external failure")
+        response = self.client.get(
+            '/api/station_data?station_id=TEST&firstyear=2021&lastyear=2021&station_lat=45'
+        )
+        self.assertEqual(response.status_code, 500)
+        data = json.loads(response.data.decode('utf-8'))
+        self.assertIn("error", data)
+        self.assertIn("Simulated external failure", data["error"])
+
+    @patch('app.find_stations_within_radius')
+    def test_api_find_stations_error(self, mock_find_stations):
+        """
+        Simulate an error in the station search logic.
+        The /api/find_stations endpoint should catch the exception and return an error with status code 500.
+        """
+        mock_find_stations.side_effect = Exception("Simulated station search failure")
+        response = self.client.get(
+            '/api/find_stations?lat=48&lon=8&max_dist_km=10&max_stations=5&firstyear=2000&lastyear=2020'
+        )
+        self.assertEqual(response.status_code, 500)
+        data = json.loads(response.data.decode('utf-8'))
+        self.assertIn("error", data)
+        self.assertIn("Simulated station search failure", data["error"])
+
 if __name__ == '__main__':
     unittest.main()
