@@ -291,5 +291,5 @@ if __name__ == '__main__':
             app.logger.info("Station data preloaded successfully.")
         except Exception as e:
             app.logger.error(f"Error preloading station data: {e}")
-    port = int(os.environ.get('PORT', 8090))
+    port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
