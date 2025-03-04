@@ -1,0 +1,18 @@
+body {
+  background-color: bisque;
+}
+
+.card-body canvas {
+  height: 100%;
+}
+
+#map {
+  height: 518px;
+  transition: ease-in-out 0.3s;
+}
+
+#map:hover {
+  height: 75vh;
+}
+
+/*# sourceMappingURL=style.css.map */
