@@ -35,6 +35,21 @@ function clearDivs() {
   elements.forEach(el => {
     el.innerHTML = '';
   });
+
+  // Also clear the Tabulator table if it exists
+  window.tabulatorTable = new Tabulator("#table", {
+                    data: [],
+                    layout: "fitColumns",
+                    height: "100%",
+                    columns: [
+                        { title: "Year", field: "year", width:90  },
+                        { title: "Winter (Min / Max)", field: "winter" },
+                        { title: "Spring (Min / Max)", field: "spring" },
+                        { title: "Summer (Min / Max)", field: "summer" },
+                        { title: "Autumn (Min / Max)", field: "autumn" },
+                        { title: "Full Year (Min / Max /Avg.)", field: "fullYear", widthGrow:1.2},
+                    ]
+                });
 }
 function getInputValues() {
     const latInput = document.getElementById('lat').value;
@@ -518,7 +533,7 @@ function addStationMarker(station) {
                 window.tabulatorTable = new Tabulator("#table", {
                     data: tableData,
                     layout: "fitColumns",
-                    maxHeight: "100%",
+                    height: "100%",
                     columns: [
                         { title: "Year", field: "year", width:90  },
                         { title: "Winter (Min / Max)", field: "winter" },
@@ -597,6 +612,18 @@ async function geocodeAddress(address) {
         });
     });
 }
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('lat').addEventListener('input', () => {
+    document.getElementById('address').value = "";
+  });
+  document.getElementById('lon').addEventListener('input', () => {
+    document.getElementById('address').value = "";
+  });
+  document.getElementById('address').addEventListener('input', () => {
+    document.getElementById('lat').value = "";
+    document.getElementById('lon').value = "";
+  });
+});
 </script>
 {% endblock %}
 {% block content %}
@@ -668,7 +695,7 @@ async function geocodeAddress(address) {
                 </div>
             </div>
             <!-- Table Section -->
-            <div id="table" class="col-12 shadow rounded bg-light p-4 mt-2 clear"></div>
+            <div id="table" class="col-12 shadow rounded bg-light p-4 mt-2"></div>
         </div>
     </div>
 </div>
