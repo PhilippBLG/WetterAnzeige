@@ -172,42 +172,72 @@ def process_station_data(station_id: str, firstyear: int, lastyear: int, station
     filtered['VALUE'] = pd.to_numeric(filtered['VALUE'], errors='coerce')
     filtered.loc[filtered['ELEMENT'].isin(['TMAX', 'TMIN']), 'VALUE'] /= 10
 
-    # Yearly Statistics
-    temp_data = filtered[filtered['ELEMENT'].isin(['TMAX', 'TMIN'])]
-    temp_summary = temp_data.groupby(['YEAR', 'ELEMENT'])['VALUE'].agg(['max', 'min', 'mean']).unstack()
-    max_temps = temp_summary['max'].get('TMAX')
-    min_temps = temp_summary['min'].get('TMIN')
-    overall_avg_temp = temp_data.groupby('YEAR')['VALUE'].mean()
+    # Yearly Statistics based on daily averages
+    # Filter only for TMAX and TMIN values
+    temp_data = filtered[filtered['ELEMENT'].isin(['TMAX', 'TMIN'])].copy()
+
+    # Pivot the data so that each date has its TMAX and TMIN in columns
+    # (Assuming each day has both TMAX and TMIN)
+    daily = temp_data.pivot_table(index='DATE', columns='ELEMENT', values='VALUE', aggfunc='mean')
+
+    # Compute the daily average temperature as the mean of TMAX and TMIN
+    daily['avg'] = daily[['TMAX', 'TMIN']].mean(axis=1)
+
+    # Extract the year from the date index
+    daily['YEAR'] = daily.index.year.astype(str)
+
+    # Now, group by year and compute:
+    #   - the maximum daily average,
+    #   - the minimum daily average,
+    #   - and the overall average daily average.
+    yearly_max_avg = daily.groupby('YEAR')['avg'].max()
+    yearly_min_avg = daily.groupby('YEAR')['avg'].min()
+    yearly_overall_avg = daily.groupby('YEAR')['avg'].mean()
 
     yearly_result = pd.DataFrame({
-        'Max_Temperature (°C)': max_temps,
-        'Min_Temperature (°C)': min_temps,
-        'Year_Avg_Temperature (°C)': overall_avg_temp
+        'Max_Temperature (°C)': yearly_max_avg,
+        'Min_Temperature (°C)': yearly_min_avg,
+        'Year_Avg_Temperature (°C)': yearly_overall_avg
     }).fillna(0)
 
-    # Seasonal Statistics
+    # Seasonal Statistics based on daily averages (without overall average)
     season_data = temp_data.copy()
     season_data['month'] = season_data['DATE'].dt.month
     season_data['year_int'] = season_data['DATE'].dt.year
     season_data['season'] = season_data['month'].apply(lambda m: get_season(m, station_lat))
+    # For proper grouping of winter, assign December to the following year:
     season_data['season_year'] = season_data['year_int']
     season_data.loc[season_data['month'] == 12, 'season_year'] += 1
 
-    tmax_data = season_data[season_data['ELEMENT'] == 'TMAX']
-    tmin_data = season_data[season_data['ELEMENT'] == 'TMIN']
-    seasonal_max = tmax_data.groupby(['season_year', 'season'])['VALUE'].max().unstack()
-    seasonal_min = tmin_data.groupby(['season_year', 'season'])['VALUE'].min().unstack()
+    # Pivot the data by date, season, and season_year
+    daily_season = season_data.pivot_table(
+        index=['DATE', 'season', 'season_year'],
+        columns='ELEMENT',
+        values='VALUE',
+        aggfunc='mean'
+    )
 
+    # Compute the daily average as the mean of TMAX and TMIN for each day
+    daily_season['avg'] = daily_season[['TMAX', 'TMIN']].mean(axis=1)
+
+    # Group by season_year and season, then compute the maximum and minimum of the daily averages.
+    seasonal_group = daily_season.groupby(['season_year', 'season'])['avg']
+    seasonal_max_avg = seasonal_group.max().unstack()  # Maximum daily average per season
+    seasonal_min_avg = seasonal_group.min().unstack()  # Minimum daily average per season
+
+    # Build a dictionary for the seasonal summary (only max and min)
     seasonal_summary = {}
     for sy in sorted(season_data['season_year'].unique()):
         sy_str = str(sy)
         seasonal_summary[sy_str] = {}
         for season in ['Winter', 'Spring', 'Summer', 'Autumn']:
-            max_val = seasonal_max.loc[sy, season] if (season in seasonal_max.columns and sy in seasonal_max.index) else None
-            min_val = seasonal_min.loc[sy, season] if (season in seasonal_min.columns and sy in seasonal_min.index) else None
+            max_val = seasonal_max_avg.loc[
+                sy, season] if season in seasonal_max_avg.columns and sy in seasonal_max_avg.index else None
+            min_val = seasonal_min_avg.loc[
+                sy, season] if season in seasonal_min_avg.columns and sy in seasonal_min_avg.index else None
             seasonal_summary[sy_str][season] = {
                 'Max_Temperature (°C)': max_val if max_val is not None else 0,
-                'Min_Temperature (°C)': min_val if min_val is not None else 0
+                'Min_Temperature (°C)': min_val if min_val is not None else 0,
             }
 
     yearly_filtered = {year: val for year, val in yearly_result.to_dict(orient='index').items()

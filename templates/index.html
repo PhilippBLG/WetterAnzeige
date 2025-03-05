@@ -200,14 +200,19 @@ function addStationMarker(station) {
 
             document.getElementById('max-temp').innerHTML = `
                 <div class="h-100 d-flex flex-column justify-content-center align-items-center">
-                    <h4>Max Temperature</h4>
-                    <div class="fw-bold display-4" style="color: #FF6384FF">${maxTempYear.maxTemp}°C</div>
+                    <h4>Max Avg. Temperature</h4>
+                    <div class="fw-bold display-4" style="color: #FF6384FF">
+                        ${Number(maxTempYear.maxTemp).toFixed(2)}°C
+                    </div>
                     <div class="text-muted small">Measured in ${maxTempYear.year}</div>
                 </div>`;
+
             document.getElementById('min-temp').innerHTML = `
                 <div class="h-100 d-flex flex-column justify-content-center align-items-center">
-                    <h4>Min Temperature</h4>
-                    <div class="fw-bold display-4" style="color: #36A2EBFF">${minTempYear.minTemp}°C</div>
+                    <h4>Min Avg. Temperature</h4>
+                    <div class="fw-bold display-4" style="color: #36A2EBFF">
+                        ${Number(minTempYear.minTemp).toFixed(2)}°C
+                    </div>
                     <div class="text-muted small">Measured in ${minTempYear.year}</div>
                 </div>`;
 
