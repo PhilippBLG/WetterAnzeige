@@ -165,7 +165,6 @@ def process_station_data(station_id: str, firstyear: int, lastyear: int, station
                    'M-FLAG': str, 'Q-FLAG': str, 'S-FLAG': str, 'OBS-TIME': str},
             low_memory=False
         )
-
     data['DATE'] = pd.to_datetime(data['DATE'], format='%Y%m%d', errors='coerce')
     data['YEAR'] = data['DATE'].dt.year.astype(str)
     filtered = data[data['ELEMENT'].isin(['TMAX', 'TMIN'])].copy()
