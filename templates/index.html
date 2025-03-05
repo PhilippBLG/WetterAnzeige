@@ -13,6 +13,23 @@ let markers = [];
 let map = null;
 let eventSource = null;
 let cityCircle = null;
+function formatNumbers(obj) {
+  if (typeof obj === 'number') {
+    // Round to two decimals
+    return Math.round(obj * 100) / 100;
+  } else if (Array.isArray(obj)) {
+    return obj.map(formatNumbers);
+  } else if (obj !== null && typeof obj === 'object') {
+    const newObj = {};
+    for (const key in obj) {
+      if (obj.hasOwnProperty(key)) {
+        newObj[key] = formatNumbers(obj[key]);
+      }
+    }
+    return newObj;
+  }
+  return obj;
+}
 function getInputValues() {
     const latInput = document.getElementById('lat').value;
     const lonInput = document.getElementById('lon').value;
@@ -171,7 +188,8 @@ function addStationMarker(station) {
                 throw new Error("Failed to fetch weather data");
             }
             // Nutze await response.json() zum Parsen
-            const weatherData = await response.json();
+            const oldWeatherData = await response.json();
+            const weatherData = formatNumbers(oldWeatherData);
 
             const yearlySummary = weatherData.yearly_summary;
             const seasonalSummary = weatherData.seasonal_summary;
