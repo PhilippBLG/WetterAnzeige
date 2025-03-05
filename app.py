@@ -171,12 +171,7 @@ def process_station_data(station_id: str, firstyear: int, lastyear: int, station
     filtered['VALUE'] = pd.to_numeric(filtered['VALUE'], errors='coerce')
     filtered.loc[filtered['ELEMENT'].isin(['TMAX', 'TMIN']), 'VALUE'] /= 10
 
-    # Yearly Statistics based on daily averages
-    # Filter only for TMAX and TMIN values (already converted to °C)
-    filtered = data[data['ELEMENT'].isin(['TMAX', 'TMIN'])].copy()
-    filtered['VALUE'] = pd.to_numeric(filtered['VALUE'], errors='coerce')
-    filtered.loc[filtered['ELEMENT'].isin(['TMAX', 'TMIN']), 'VALUE'] /= 10
-
+    # Yearly Statistics
     # Compute the yearly average for TMAX and TMIN separately
     yearly_tmax_avg = filtered[filtered['ELEMENT'] == 'TMAX'].groupby('YEAR')['VALUE'].mean()
     yearly_tmin_avg = filtered[filtered['ELEMENT'] == 'TMIN'].groupby('YEAR')['VALUE'].mean()
