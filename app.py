@@ -172,30 +172,19 @@ def process_station_data(station_id: str, firstyear: int, lastyear: int, station
     filtered.loc[filtered['ELEMENT'].isin(['TMAX', 'TMIN']), 'VALUE'] /= 10
 
     # Yearly Statistics based on daily averages
-    # Filter only for TMAX and TMIN values
-    temp_data = filtered[filtered['ELEMENT'].isin(['TMAX', 'TMIN'])].copy()
+    # Filter only for TMAX and TMIN values (already converted to °C)
+    filtered = data[data['ELEMENT'].isin(['TMAX', 'TMIN'])].copy()
+    filtered['VALUE'] = pd.to_numeric(filtered['VALUE'], errors='coerce')
+    filtered.loc[filtered['ELEMENT'].isin(['TMAX', 'TMIN']), 'VALUE'] /= 10
 
-    # Pivot the data so that each date has its TMAX and TMIN in columns
-    # (Assuming each day has both TMAX and TMIN)
-    daily = temp_data.pivot_table(index='DATE', columns='ELEMENT', values='VALUE', aggfunc='mean')
-
-    # Compute the daily average temperature as the mean of TMAX and TMIN
-    daily['avg'] = daily[['TMAX', 'TMIN']].mean(axis=1)
-
-    # Extract the year from the date index
-    daily['YEAR'] = daily.index.year.astype(str)
-
-    # Now, group by year and compute:
-    #   - the maximum daily average,
-    #   - the minimum daily average,
-    #   - and the overall average daily average.
-    yearly_max_avg = daily.groupby('YEAR')['avg'].max()
-    yearly_min_avg = daily.groupby('YEAR')['avg'].min()
-    yearly_overall_avg = daily.groupby('YEAR')['avg'].mean()
+    # Compute the yearly average for TMAX and TMIN separately
+    yearly_tmax_avg = filtered[filtered['ELEMENT'] == 'TMAX'].groupby('YEAR')['VALUE'].mean()
+    yearly_tmin_avg = filtered[filtered['ELEMENT'] == 'TMIN'].groupby('YEAR')['VALUE'].mean()
+    yearly_overall_avg = filtered.groupby('YEAR')['VALUE'].mean()
 
     yearly_result = pd.DataFrame({
-        'Max_Temperature (°C)': yearly_max_avg,
-        'Min_Temperature (°C)': yearly_min_avg,
+        'Max_Temperature (°C)': yearly_tmax_avg,
+        'Min_Temperature (°C)': yearly_tmin_avg,
         'Year_Avg_Temperature (°C)': yearly_overall_avg
     }).fillna(0)
 
