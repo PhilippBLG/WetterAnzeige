@@ -189,7 +189,7 @@ def process_station_data(station_id: str, firstyear: int, lastyear: int, station
     }).fillna(0)
 
     # Seasonal Statistics based on daily averages (without overall average)
-    season_data = temp_data.copy()
+    season_data = filtered.copy()
     season_data['month'] = season_data['DATE'].dt.month
     season_data['year_int'] = season_data['DATE'].dt.year
     season_data['season'] = season_data['month'].apply(lambda m: get_season(m, station_lat))
