@@ -30,6 +30,12 @@ function formatNumbers(obj) {
   }
   return obj;
 }
+function clearDivs() {
+  const elements = document.querySelectorAll('.clear');
+  elements.forEach(el => {
+    el.innerHTML = '';
+  });
+}
 function getInputValues() {
     const latInput = document.getElementById('lat').value;
     const lonInput = document.getElementById('lon').value;
@@ -600,7 +606,7 @@ async function geocodeAddress(address) {
         <div class="col-3 d-flex flex-column sticky-top" style="height: 100vh">
             <div class="col shadow rounded bg-light p-4 flex-grow-1">
                 <h1>Wetter Dashboard</h1>
-                <form class="row mt-4 g-3" onsubmit="event.preventDefault(); fetchStations();">
+                <form class="row mt-4 g-3" onsubmit="event.preventDefault(); fetchStations(); clearDivs();">
                     <div class="col-md-12">
                         <label for="address" class="form-label">Address:</label>
                         <input id="address" type="text" class="form-control" placeholder="Enter address">
@@ -638,12 +644,12 @@ async function geocodeAddress(address) {
             </div>
             <!-- Max Temperature -->
             <div class="mt-2 flex-grow-1">
-                <div id="max-temp" class="shadow rounded bg-light p-4 h-100"></div>
+                <div id="max-temp" class="shadow rounded bg-light p-4 h-100 clear"></div>
             </div>
 
-            <!-- Additional Max Temperature -->
+            <!--  Min Temperature -->
             <div class="mt-2 flex-grow-1">
-                <div id="min-temp" class="shadow rounded bg-light p-4 h-100"></div>
+                <div id="min-temp" class="shadow rounded bg-light p-4 h-100 clear"></div>
             </div>
         </div>
         <!-- Main content on the right -->
@@ -658,11 +664,11 @@ async function geocodeAddress(address) {
             <div class="flex-fill row gx-2 mt-2">
                 <!-- Temperature Graph -->
                 <div class="col-12">
-                    <div id="temp-graph" class="shadow rounded bg-light p-4"></div>
+                    <div id="temp-graph" class="shadow rounded bg-light p-4 clear"></div>
                 </div>
             </div>
             <!-- Table Section -->
-            <div id="table" class="col-12 shadow rounded bg-light p-4 mt-2"></div>
+            <div id="table" class="col-12 shadow rounded bg-light p-4 mt-2 clear"></div>
         </div>
     </div>
 </div>
