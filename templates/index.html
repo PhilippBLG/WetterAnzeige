@@ -1,14 +1,11 @@
 {% extends 'base.html' %}
 {% block header %}
 <title>WetterAnzeige</title>
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAxOzRDNqtyLTKUK83-j7auXehzWmoCoaY&libraries=marker"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
 <script>
 const DEFAULT_MAP_ID = "Map1";
 const EVENT_SOURCE_URL = "/api/find_stations";
-const HOME_ICON_URL = "/static/Subject.png";
-const STATION_ICON_URL = "https://cdn-icons-png.flaticon.com/512/1809/1809492.png";
+const HOME_ICON_URL = "/static/Subject.svg";
+const STATION_ICON_URL = "/static/WeatherIcon.png";
 let markers = [];
 let map = null;
 let eventSource = null;
@@ -85,7 +82,7 @@ function validateInputs({ lat, lon, max_dist_km, max_stations }) {
         lat && lon && max_dist_km > 0 && max_stations > 0
     );
 }
-function initializeMap(lat, lon) {
+async function initializeMap(lat, lon) {
     if (!map) {
         map = new google.maps.Map(document.getElementById("map"), {
             zoom: 10,
@@ -131,10 +128,6 @@ function addHomeMarker(lat, lon, dist) {
       center: { lat: parseFloat(lat), lng: parseFloat(lon) },
       radius: dist * 1000,
     });
-    homeMarker.addListener("click", () => {
-        homeIcon.style.transition = "width 0.5s ease-in-out";
-        homeIcon.width = homeIcon.width === 44 ? 400 : 44;
-    });
     markers.push(homeMarker);
 }
 function addStationMarker(station) {
@@ -179,7 +172,7 @@ function addStationMarker(station) {
       });
 
       // Optionally, toggle the infoBox on click
-      container.addEventListener("click", () => {
+      container.addEventListener("gmp-click", () => {
         infoBox.style.display = (infoBox.style.display === "none") ? "block" : "none";
       });
 
@@ -199,7 +192,7 @@ function addStationMarker(station) {
 
 
 
-        stationMarker.addListener("click", async () => {
+        stationMarker.addListener("gmp-click", async () => {
         document.getElementById('temp-graph').innerHTML = `<h5>Loading weather data for station: ${station.station_id}...</h5>`;
         try {
             const inputValues = getInputValues();
