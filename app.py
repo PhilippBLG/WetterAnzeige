@@ -8,10 +8,18 @@ import requests
 from flask import Flask, request, render_template, Response, jsonify
 import logging
 import os
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 app = Flask(__name__)
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["2000 per day", "50 per minute"]
+)
 logging.basicConfig(level=logging.INFO)
 app.logger.setLevel(logging.INFO)
+
 
 # Konstanten für Fixed-Width-Dateien
 GHCND_COLSPECS = [
@@ -226,6 +234,7 @@ def process_station_data(station_id: str, firstyear: int, lastyear: int, station
 
 # Flask Endpoints
 @app.route('/api/station_data', methods=['GET'])
+@limiter.limit("30 per minute")
 def get_station_weather_data():
     station_id = request.args.get('station_id')
     if not station_id:
@@ -242,6 +251,7 @@ def get_station_weather_data():
 
 
 @app.route('/api/find_stations', methods=['GET'])
+@limiter.limit("30 per minute")
 def find_stations():
     inventory_url = "https://www1.ncdc.noaa.gov/pub/data/ghcn/daily/ghcnd-inventory.txt"
     csv_url_city = "https://www1.ncdc.noaa.gov/pub/data/ghcn/daily/ghcnd-stations.txt"

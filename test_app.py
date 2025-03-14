@@ -1,4 +1,6 @@
 import unittest
+import os
+import tempfile
 import io
 import gzip
 import json
@@ -12,7 +14,35 @@ from app import (
     replace_nan_with_none,
     find_stations_within_radius,
     process_station_data,
+    get_season,
+    read_station_cities,
+    read_ghcnd_stations
 )
+
+
+STATION_CITY_COLSPECS = [
+    (0, 11),   # ID: columns 1-11
+    (12, 20),  # LATITUDE: columns 13-20
+    (21, 30),  # LONGITUDE: columns 22-30
+    (31, 37),  # ELEVATION: columns 32-37
+    (38, 40),  # STATE: columns 39-40
+    (41, 71),  # NAME: columns 42-71
+    (72, 75),  # GSN FLAG: columns 73-75
+    (76, 79),  # HCN/CRN FLAG: columns 77-79
+    (80, 85)   # WMO ID: columns 81-85
+]
+STATION_CITY_NAMES = ["ID", "LATITUDE", "LONGITUDE", "ELEVATION", "STATE", "NAME", "GSN_FLAG", "HCN_CRN_FLAG", "WMO_ID"]
+
+# Konstanten für Fixed-Width-Dateien
+GHCND_COLSPECS = [
+    (0, 11),   # ID: Spalte 1-11
+    (12, 20),  # LATITUDE: Spalte 13-20
+    (21, 30),  # LONGITUDE: Spalte 22-30
+    (31, 35),  # ELEMENT: Spalte 32-35
+    (36, 40),  # FIRSTYEAR: Spalte 37-40
+    (41, 45)   # LASTYEAR: Spalte 42-45
+]
+GHCND_NAMES = ['ID', 'LATITUDE', 'LONGITUDE', 'ELEMENT', 'FIRSTYEAR', 'LASTYEAR']
 
 ###############################################################################
 # Utility Functions Tests
@@ -41,6 +71,140 @@ class TestUtilityFunctions(unittest.TestCase):
             'd': 'value'
         }
         self.assertEqual(replace_nan_with_none(test_obj), expected)
+
+    def test_get_season(self):
+        # Northern Hemisphere (station_lat >= 0)
+        self.assertEqual(get_season(3, 45), 'Spring')
+        self.assertEqual(get_season(4, 45), 'Spring')
+        self.assertEqual(get_season(5, 45), 'Spring')
+        self.assertEqual(get_season(6, 45), 'Summer')
+        self.assertEqual(get_season(7, 45), 'Summer')
+        self.assertEqual(get_season(8, 45), 'Summer')
+        self.assertEqual(get_season(9, 45), 'Autumn')
+        self.assertEqual(get_season(10, 45), 'Autumn')
+        self.assertEqual(get_season(11, 45), 'Autumn')
+        self.assertEqual(get_season(1, 45), 'Winter')
+        self.assertEqual(get_season(2, 45), 'Winter')
+        self.assertEqual(get_season(12, 45), 'Winter')
+
+        # Southern Hemisphere (station_lat < 0)
+        self.assertEqual(get_season(3, -45), 'Autumn')
+        self.assertEqual(get_season(4, -45), 'Autumn')
+        self.assertEqual(get_season(5, -45), 'Autumn')
+        self.assertEqual(get_season(6, -45), 'Winter')
+        self.assertEqual(get_season(7, -45), 'Winter')
+        self.assertEqual(get_season(8, -45), 'Winter')
+        self.assertEqual(get_season(9, -45), 'Spring')
+        self.assertEqual(get_season(10, -45), 'Spring')
+        self.assertEqual(get_season(11, -45), 'Spring')
+        self.assertEqual(get_season(1, -45), 'Summer')
+        self.assertEqual(get_season(2, -45), 'Summer')
+        self.assertEqual(get_season(12, -45), 'Summer')
+
+    def test_read_station_cities(self):
+        # Create a sample fixed-width file content.
+        # We'll create two rows. Each field is padded to the required width.
+        #
+        # Field widths (based on STATION_CITY_COLSPECS):
+        # ID: 11, LATITUDE: 8, LONGITUDE: 9, ELEVATION: 6, STATE: 2,
+        # NAME: 30, GSN_FLAG: 3, HCN_CRN_FLAG: 3, WMO_ID: 5
+        #
+        # We'll separate fields with a single space between fields.
+        row1 = (
+            f"{'GME00102404':<11}" +
+            f" {'48.1234':<8}" +
+            f" {'8.1234':<9}" +
+            f" {'100':<6}" +
+            f" {'XX':<2}" +
+            f" {'Test City':<30}" +
+            f" {'_':<3}" +
+            f" {'_':<3}" +
+            f" {'_':<5}"
+        )
+        row2 = (
+            f"{'GME00102405':<11}" +
+            f" {'49.5678':<8}" +
+            f" {'9.5678':<9}" +
+            f" {'200':<6}" +
+            f" {'YY':<2}" +
+            f" {'Another City':<30}" +
+            f" {'_':<3}" +
+            f" {'_':<3}" +
+            f" {'_':<5}"
+        )
+        sample_content = row1 + "\n" + row2 + "\n"
+
+        # Create a temporary file containing our sample data.
+        with tempfile.NamedTemporaryFile("w+", delete=False) as tmp:
+            tmp.write(sample_content)
+            tmp_path = tmp.name
+
+        try:
+            # Call the function with the path to our temporary file.
+            mapping = read_station_cities(tmp_path)
+            # Expected mapping: IDs mapped to the station NAME (trimmed).
+            expected = {
+                "GME00102404": "Test City",
+                "GME00102405": "Another City"
+            }
+            self.assertEqual(mapping, expected)
+        finally:
+            os.unlink(tmp_path)
+
+    def test_read_ghcnd_stations(self):
+        # Create sample fixed-width data:
+        # We simulate three rows:
+        # Row 1: A TMIN record for STATION001.
+        # Row 2: A TMAX record for STATION001 (duplicate ID; should be dropped).
+        # Row 3: A PRCP record for STATION002 (should be filtered out).
+        #
+        # Each field is padded to the width specified in TEST_GHCND_COLSPECS.
+        row1 = (
+            f"{'STATION001':<13}" +  # ID (11 chars)
+            f"{'48.1234':<9}" +      # LATITUDE (8 chars)
+            f"{' 8.12345':<9}" +      # LONGITUDE (9 chars)
+            f"{'TMIN':<5}" +         # ELEMENT (4 chars)
+            f"{'2000':<5}" +         # FIRSTYEAR (4 chars)
+            f"{'2020':<5}"           # LASTYEAR (4 chars)
+        )
+        row2 = (
+            f"{'STATION001':<13}" +
+            f"{'48.1234':<9}" +
+            f"{' 8.12345':<9}" +
+            f"{'TMAX':<5}" +
+            f"{'2000':<5}" +
+            f"{'2020':<5}"
+        )
+        row3 = (
+            f"{'STATION002':<13}" +
+            f"{'49.0000':<9}" +
+            f"{' 9.00000':<9}" +
+            f"{'PRCP':<5}" +
+            f"{'2001':<5}" +
+            f"{'2021':<5}"
+        )
+        sample_data = row1 + "\n" + row2 + "\n" + row3 + "\n"
+        print(sample_data)
+
+        # Write sample_data to a temporary file.
+        with tempfile.NamedTemporaryFile("w+", delete=False) as tmp:
+            tmp.write(sample_data)
+            tmp_path = tmp.name
+
+        try:
+            df = read_ghcnd_stations(tmp_path)
+            # Since row3 should be filtered out (ELEMENT not in ['TMIN','TMAX'])
+            # and row2 is a duplicate of row1, we expect exactly 1 unique station.
+            self.assertEqual(len(df), 1)
+            row = df.iloc[0]
+            self.assertEqual(row["ID"].strip(), "STATION001")
+            # Verify that numeric columns are converted correctly.
+            self.assertAlmostEqual(row["LATITUDE"], 48.1234)
+            self.assertAlmostEqual(row["LONGITUDE"], 8.12345)
+            # Check that the ELEMENT is either 'TMIN' or 'TMAX'
+            self.assertIn(row["ELEMENT"], ['TMIN', 'TMAX'])
+        finally:
+            os.unlink(tmp_path)
 
 ###############################################################################
 # Testing find_stations_within_radius
